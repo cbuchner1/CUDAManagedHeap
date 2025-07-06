@@ -27,3 +27,11 @@ The host specific alloc and dealloc functions currently call into device kernels
 performant, CPU-optimized implementation of these functions.
 
 An code example showing passing C++ objects across device boundaries would be nice to have.
+
+## Resources
+
+An archived copy of the research paper behind ScatterAlloc is found
+[here.](https://web.archive.org/web/20160201114513/http://www.icg.tugraz.at/Members/steinber/scatteralloc-1)
+
+The MVP project web page has been archived
+[here.](https://web.archive.org/web/20170311124644/http://www.icg.tugraz.at/project/mvp/)
