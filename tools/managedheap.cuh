@@ -853,6 +853,26 @@ namespace GPUTools
       return slotcount;
     }
 
+    /** Count the number of free bytes in the heap
+     *
+     * Traverses the heap similarly to getAvailableSlotsDeviceFunction and
+     * accumulates the remaining memory. The result is theoretical and might
+     * not be fully allocatable due to fragmentation.
+     */
+    __device__ size_t getAvailableBytesDeviceFunction(int gid, int stride)
+    {
+      size_t bytecount = 0;
+      for(uint32_t currentpage = gid; currentpage < _numpages; currentpage += stride){
+        uint32_t chunksize = _ptes[currentpage].chunksize;
+        if(chunksize == 0){
+          bytecount += pagesize;
+        }else if(chunksize < pagesize){
+          bytecount += (size_t)countFreeChunksInPage(currentpage, chunksize) * chunksize;
+        }
+      }
+      return bytecount;
+    }
+
     /** Count, how many elements can be allocated at maximum
      *
      * Takes an input size and determines, how many elements of this size can
@@ -866,6 +886,16 @@ namespace GPUTools
      * @param slotSize the size of allocatable elements to count
      */
     __host__ unsigned getAvailableSlots(size_t const slotSize);
+
+    /**
+     * Count how many bytes can be allocated at maximum
+     *
+     * Traverses the entire heap and accumulates the amount of memory that is
+     * currently unused. This number is purely theoretical as fragmentation may
+     * prevent allocations of this size. The algorithm mirrors the strategy
+     * used for getAvailableSlots and is executed in parallel on the device.
+     */
+    __host__ size_t getAvailableBytes();
     
     /**
      * alloc allocates the requested number of bytes via the heap
@@ -960,6 +990,14 @@ namespace GPUTools
   }
 
   template<uint pagesize, uint accessblocks, uint regionsize, uint wastefactor, bool use_coalescing, bool resetfreedpages>
+  __global__ void getAvailableBytesKernel(ManagedHeap<pagesize, accessblocks, regionsize, wastefactor, use_coalescing, resetfreedpages>* heap, size_t* bytes){
+    int gid     = threadIdx.x + blockIdx.x*blockDim.x;
+    int nWorker = gridDim.x * blockDim.x;
+    size_t temp = heap->getAvailableBytesDeviceFunction(gid, nWorker);
+    if(temp) atomicAdd((unsigned long long*)bytes, (unsigned long long)temp);
+  }
+
+  template<uint pagesize, uint accessblocks, uint regionsize, uint wastefactor, bool use_coalescing, bool resetfreedpages>
   __host__ unsigned ManagedHeap<pagesize,accessblocks,regionsize,wastefactor,use_coalescing,resetfreedpages>::getAvailableSlots(size_t const slotSize){
     unsigned h_slots = 0;
     unsigned* d_slots;
@@ -973,5 +1011,21 @@ namespace GPUTools
     CUDA_CHECKED_CALL(cudaMemcpy(&h_slots, d_slots, sizeof(unsigned), cudaMemcpyDeviceToHost));
     cudaFree(d_slots);
     return h_slots;
+  }
+
+  template<uint pagesize, uint accessblocks, uint regionsize, uint wastefactor, bool use_coalescing, bool resetfreedpages>
+  __host__ size_t ManagedHeap<pagesize,accessblocks,regionsize,wastefactor,use_coalescing,resetfreedpages>::getAvailableBytes(){
+    size_t h_bytes = 0;
+    size_t* d_bytes;
+    CUDA_CHECKED_CALL(cudaMalloc((void**) &d_bytes, sizeof(size_t)));
+    CUDA_CHECKED_CALL(cudaMemcpy(d_bytes, &h_bytes, sizeof(size_t), cudaMemcpyHostToDevice));
+
+    getAvailableBytesKernel<<<64,256>>>(this, d_bytes);
+    CUDA_CHECKED_CALL(cudaDeviceSynchronize());
+    CUDA_CHECK_ERROR();
+
+    CUDA_CHECKED_CALL(cudaMemcpy(&h_bytes, d_bytes, sizeof(size_t), cudaMemcpyDeviceToHost));
+    cudaFree(d_bytes);
+    return h_bytes;
   }
 }

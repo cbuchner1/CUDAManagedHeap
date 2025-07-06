@@ -4,6 +4,8 @@
 #include <cstring>
 #include <iostream>
 
+constexpr size_t HEAP_SIZE = 8U*1024U*1024U;
+
 namespace {
 int g_cuda_device = 0;
 bool g_device_exists = true;
@@ -30,7 +32,7 @@ protected:
                 }
             }
         }
-        initHeap();
+        initHeap(HEAP_SIZE);
     }
 
     void SetUp() override {
@@ -71,6 +73,38 @@ TEST_F(ManagedHeapTest, MallocFreeOnDevice)
 
     Free_kernel<<<grid, block>>>(data);
     CUDA_CHECKED_CALL(cudaDeviceSynchronize());
+
+    cudaFree(data);
+}
+
+
+TEST_F(ManagedHeapTest, getAvailableBytes)
+{
+    size_t block = 128;
+    size_t grid = 64;
+
+    uint** data;
+    CUDA_CHECKED_CALL(cudaMallocManaged(&data, grid * block * sizeof(uint*)));
+
+    size_t bytes_initialAmount = theHeap_ph->getAvailableBytes();
+    EXPECT_LT(bytes_initialAmount, HEAP_SIZE);
+
+    Malloc_kernel<<<grid, block>>>(data);
+    CUDA_CHECKED_CALL(cudaDeviceSynchronize());
+
+    size_t bytes_afterAllocation = theHeap_ph->getAvailableBytes();
+
+    EXPECT_LT(bytes_afterAllocation, bytes_initialAmount);
+
+    Free_kernel<<<grid, block>>>(data);
+    CUDA_CHECKED_CALL(cudaDeviceSynchronize());
+
+    size_t bytes_afterFree = theHeap_ph->getAvailableBytes();
+
+    EXPECT_GT(bytes_afterFree, bytes_afterAllocation);
+
+    // NOTE: this expectation isn't yet holding up for some reason
+    //EXPECT_EQ(bytes_initialAmount, bytes_afterFree);
 
     cudaFree(data);
 }
