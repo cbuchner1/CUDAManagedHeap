@@ -135,8 +135,17 @@ public:
   __host__ __device__
   TestVector(const TestVector<T>& rhs)
   {
-    *this = rhs;
+    _size = rhs._size;
+#ifndef __CUDA_ARCH__
+    _data = static_cast<T*>(theHeap_ph->alloc(_size * sizeof(T)));
+#else
+    _data = new T[_size];
+#endif
+    memcpy(_data, rhs._data, _size * sizeof(T));
   }
+
+  // assignment operator is deleted
+  __host__ __device__ TestVector<T>& operator=(const TestVector<T>& rhs) = delete;
 
   // destructor
   __host__ __device__
@@ -147,19 +156,6 @@ public:
     delete[] _data;
 #endif
     _data = nullptr;
-  }
-
-  // assignment operator (deep copy)
-  __host__ __device__ TestVector<T>& operator=(const TestVector<T>& rhs)
-  {
-    _size = rhs._size;
-#ifndef __CUDA_ARCH__
-    _data = static_cast<T*>(theHeap_ph->alloc(_size * sizeof(T)));
-#else
-    _data = new T[_size];
-#endif
-    memcpy(_data, rhs._data, _size * sizeof(T));
-    return *this;
   }
 
   // size accessor
