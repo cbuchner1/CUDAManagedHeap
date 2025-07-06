@@ -938,6 +938,7 @@ namespace GPUTools
     void* pool;
     CUDA_CHECKED_CALL(cudaMallocManaged(&pool, memsize));
     initHeap<<<1,256>>>(this, pool, memsize);
+    CUDA_CHECK_ERROR();
   }
 
   template<uint pagesize, uint accessblocks, uint regionsize, uint wastefactor,  bool use_coalescing, bool resetfreedpages>
@@ -946,9 +947,13 @@ namespace GPUTools
     cudaFree(_pool);
   }
 
-  template<uint pagesize, uint accessblocks, uint regionsize, uint wastefactor, bool use_coalescing, bool resetfreedpages>
-  __global__ void heapAllocKernel(ManagedHeap<pagesize, accessblocks, regionsize, wastefactor, use_coalescing, resetfreedpages>* heap, size_t bytes, void** result){
-    if(threadIdx.x==0 && blockIdx.x==0)
+  /**
+    * global init heap method
+    */
+  template<uint pagesize, uint accessblocks, uint regionsize, uint wastefactor,  bool use_coalescing, bool resetfreedpages>
+  __global__ void heapAllocKernel(ManagedHeap<pagesize, accessblocks, regionsize, wastefactor, use_coalescing, resetfreedpages>* heap, size_t bytes, void** result)
+  {
+    if(threadIdx.x==0 && blockIdx.x==0 && result != nullptr)
       *result = heap->alloc(bytes);
   }
 
@@ -964,9 +969,9 @@ namespace GPUTools
     void* h_res = nullptr;
     void** d_res;
     CUDA_CHECKED_CALL(cudaMalloc(&d_res, sizeof(void*)));
-    heapAllocKernel<<<1,1>>>(this, bytes, d_res);
-    CUDA_CHECKED_CALL(cudaDeviceSynchronize());
+    GPUTools::heapAllocKernel<<<1,1>>>(this, bytes, d_res);
     CUDA_CHECK_ERROR();
+    CUDA_CHECKED_CALL(cudaDeviceSynchronize());
     CUDA_CHECKED_CALL(cudaMemcpy(&h_res, d_res, sizeof(void*), cudaMemcpyDeviceToHost));
     cudaFree(d_res);
     return h_res;
@@ -989,8 +994,8 @@ namespace GPUTools
       dealloc_internal_direct(mem);
 #else
     heapDeallocKernel<<<1,1>>>(this, mem);
-    CUDA_CHECKED_CALL(cudaDeviceSynchronize());
     CUDA_CHECK_ERROR();
+    CUDA_CHECKED_CALL(cudaDeviceSynchronize());
 #endif
   }
 

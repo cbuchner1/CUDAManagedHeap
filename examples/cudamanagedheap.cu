@@ -44,8 +44,11 @@ typedef unsigned int uint;
 //include the scatter alloc heap
 #include "cudamanagedheap.cuh"
 
+#include <cassert>
+#include <cstdio>
+#include <initializer_list>
 #include <iostream>
-#include <stdio.h>
+#include <memory>
 
 void runexample(int cuda_device);
 
@@ -74,30 +77,120 @@ int main(int argc, char** argv)
   catch (const std::exception& e)
   {
     std::cout << e.what()  << std::endl;
-    #ifdef WIN32
-    while (!_kbhit());
-    #endif
     return -1;
   }
   catch (...)
   {
     std::cout << "unknown exception!" << std::endl;
-    #ifdef WIN32
-    while (!_kbhit());
-    #endif
     return -1;
   }
 
   return 0;
 }
 
-__global__ void allocSomething(uint** parray)
+/**
+ * Example vector class using the managed heap. Uses custom allocators to force creation in this heap.
+ * The _data member is also initialized and free'd using the managed heap's alloc and dealloc.
+ * GPU's malloc and free (and hence new and delete) is assumed to be redirected to the managed heap also.
+ */
+template<typename T>
+class TestVector
 {
-  parray[threadIdx.x + blockIdx.x*blockDim.x] = new uint[threadIdx.x % 4];
-}
-__global__ void freeSomething(uint** parray)
+public:
+
+  // new and delete on the host are handled via theHeap_ph
+  __host__ __device__
+  void* operator new(std::size_t count) {
+#ifndef __CUDA_ARCH__
+    return theHeap_ph->alloc(count);
+#else
+    return malloc(count);
+#endif
+  }
+  __host__ __device__
+  void operator delete( void* ptr)
+  {
+#ifndef __CUDA_ARCH__
+    theHeap_ph->dealloc(ptr);
+#else
+    free(ptr);
+#endif
+  }
+
+  // constructor taking an initializer list
+  __host__ __device__
+  TestVector(const std::initializer_list<T>& inputs) {
+    _size = inputs.size();
+#ifndef __CUDA_ARCH__
+    _data = static_cast<T*>(theHeap_ph->alloc(_size * sizeof(T)));
+#else
+    _data = ::new T[_size];
+#endif
+    T *tmp = _data;
+    for (auto i : inputs)
+      *tmp ++ = i;
+  }
+
+  // copy constructor
+  __host__ __device__
+  TestVector(const TestVector<T>& rhs)
+  {
+    *this = rhs;
+  }
+
+  // destructor
+  __host__ __device__
+  ~TestVector() {
+#ifndef __CUDA_ARCH__
+    theHeap_ph->dealloc(_data);
+#else
+    delete[] _data;
+#endif
+    _data = nullptr;
+  }
+
+  // assignment operator (deep copy)
+  __host__ __device__ TestVector<T>& operator=(const TestVector<T>& rhs)
+  {
+    _size = rhs._size;
+#ifndef __CUDA_ARCH__
+    _data = static_cast<T*>(theHeap_ph->alloc(_size * sizeof(T)));
+#else
+    _data = new T[_size];
+#endif
+    memcpy(_data, rhs._data, _size * sizeof(T));
+    return *this;
+  }
+
+  // size accessor
+  __host__ __device__ size_t size() const {
+    return _size;
+  }
+
+  // element accessor, via const reference
+  __host__ __device__ const T& operator[](size_t i) const {
+    return _data[i];
+  }
+
+protected:
+  size_t _size;
+  T* _data;
+};
+
+
+/**
+ * Kernel demonstrating sharing an object between CPU and GPU (object passed by reference).
+ * NOTE: passing input by value would also work (resulting in a GPU-local copy being made)
+ */
+__global__ void readVectorOnGPU(const TestVector<int>& input)
 {
-  delete[] parray[threadIdx.x + blockIdx.x*blockDim.x];
+  // test vector is passed in by reference. This verifies we can access it safely.
+  printf("Hello from readVectorOnGPU()!\n");
+  printf("input.size() = %d\n", (int)input.size());
+  for (int i=0; i < input.size(); ++i)
+  {
+    printf("input[%d] = %d\n", i, input[i]);
+  }
 }
 
 
@@ -106,19 +199,28 @@ void runexample(int cuda_device)
   CUDA_CHECKED_CALL(cudaSetDevice(cuda_device));
 
   //init the heap
-  initHeap();
-  //you can also specify the size of the heap in bytes
-  //initHeap(8U*1024U*1024U);
+  initHeap(8U*1024U*1024U);
 
-  size_t block = 128;
-  size_t grid = 64;
+  // we can't create this on the stack because this must live on the managed heap
+  auto input_p = std::make_unique<TestVector<int>>(std::initializer_list<int>{1,2,3});
+  const TestVector<int>& input = *input_p;
 
-  uint** data;
-  CUDA_CHECKED_CALL(cudaMallocManaged(&data, grid*block*sizeof(uint*)));
+  // test basic functionality on CPU
+  assert(input.size() == 3);
+  assert(input[0] == 1);
+  assert(input[1] == 2);
+  assert(input[2] == 3);
 
-  allocSomething<<<grid,block>>>(data);
+  printf("Hello from runexample()!\n");
+  printf("input.size() = %d\n", (int)input.size());
+  for (int i=0; i < input.size(); ++i)
+  {
+    printf("input[%d] = %d\n", i, input[i]);
+  }
+  fflush(stdout);
+
+  readVectorOnGPU<<<1,1>>>(input);
   CUDA_CHECKED_CALL(cudaDeviceSynchronize());
 
-  freeSomething<<<grid,block>>>(data);
-  CUDA_CHECKED_CALL(cudaDeviceSynchronize());
+  printf("Success!\n");
 }
