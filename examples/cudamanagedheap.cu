@@ -30,8 +30,6 @@
 #include <cuda.h>
 typedef unsigned int uint;
 
-//replace the cuda malloc and free calls
-#define OVERWRITE_MALLOC
 //set the template arguments using HEAPARGS
 // pagesize ... byter per page
 // accessblocks ... number of superblocks
@@ -39,18 +37,12 @@ typedef unsigned int uint;
 // wastefactor ... how much memory can be wasted per alloc (multiplicative factor)
 // use_coalescing ... combine memory requests of within each warp
 // resetfreedpages ... allow pages to be reused with a different size
-#define HEAPARGS 4096, 8, 16, 2, true, false
+#define HEAPARGS 65536, 8, 16, 2, true, false
+
+#define _DEBUG 1 // makes CUDA_CHECKED_CALL throw
+
 //include the scatter alloc heap
-#include "tools/heap_impl.cuh"
-
-#include "tools/utils.h"
-
-#ifdef WIN32
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <windows.h>
-#include <conio.h>
-#endif
+#include "cudamanagedheap.cuh"
 
 #include <iostream>
 #include <stdio.h>
@@ -65,7 +57,7 @@ int main(int argc, char** argv)
     int cuda_device = argc > 1 ? atoi(argv[1]) : 0;
 
     cudaDeviceProp deviceProp;
-	  cudaGetDeviceProperties(&deviceProp, cuda_device);
+	  CUDA_CHECKED_CALL(cudaGetDeviceProperties(&deviceProp, cuda_device));
     std::cout << "Using device: " << deviceProp.name << std::endl;
 
 	  if( deviceProp.major < 2 ) {
@@ -99,7 +91,6 @@ int main(int argc, char** argv)
   return 0;
 }
 
-
 __global__ void allocSomething(uint** parray)
 {
   parray[threadIdx.x + blockIdx.x*blockDim.x] = new uint[threadIdx.x % 4];
@@ -112,7 +103,7 @@ __global__ void freeSomething(uint** parray)
 
 void runexample(int cuda_device)
 {
-  cudaSetDevice(cuda_device);
+  CUDA_CHECKED_CALL(cudaSetDevice(cuda_device));
 
   //init the heap
   initHeap();
@@ -123,9 +114,11 @@ void runexample(int cuda_device)
   size_t grid = 64;
 
   uint** data;
-  CUDA_CHECKED_CALL(cudaMalloc(&data, grid*block*sizeof(uint*)));
+  CUDA_CHECKED_CALL(cudaMallocManaged(&data, grid*block*sizeof(uint*)));
+
   allocSomething<<<grid,block>>>(data);
   CUDA_CHECKED_CALL(cudaDeviceSynchronize());
+
   freeSomething<<<grid,block>>>(data);
   CUDA_CHECKED_CALL(cudaDeviceSynchronize());
 }

@@ -1,71 +1,29 @@
-ScatterAlloc
-============
+# Cuda Managed Heap
 
-ScatterAlloc: Massively Parallel Dynamic Memory Allocation for the GPU
-
-This project provides a **fast memory manager** for **Nvidia GPUs** with
-compute capability `sm_20` or higher.
-
-From http://www.icg.tugraz.at/project/mvp/downloads :
-```quote
-ScatterAlloc is a dynamic memory allocator for the GPU. It is
-designed concerning the requirements of massively parallel
-execution.
-
-ScatterAlloc greatly reduces collisions and congestion by
-scattering memory requests based on hashing. It can deal with
-thousands of GPU-threads concurrently allocating memory and its
-execution time is almost independent of the thread count.
-
-ScatterAlloc is open source and easy to use in your CUDA projects.
-```
-
-Original Homepage: http://www.icg.tugraz.at/project/mvp
-
-Our Homepage: https://www.hzdr.de/crp
+A heap for CUDA using managed memory space that works for CPU and GPU objects alike.
 
 
-Further Development
--------------------
+## About
 
-Please visit our
-[fork](https://en.wikipedia.org/wiki/Fork_%28software_development%29)
-of this project: [mallocMC](https://github.com/ComputationalRadiationPhysics/mallocMC)
+This is a fork of the ScatterAlloc memory heap that was modernized to also support SM 7.0 and later.
+It was modified to live in managed memory (the heap structure itself as well as the blocks it allocates).
 
-**mallocMC** includes a major redesign of the library.
-Starting from a policy based design for general memory pools, we implemented a whole new environment and plenty of features.
-Of course, the *scatterAlloc* algorithm is implemented, too.
+This also makes the heap usable from the host, e.g. allowing to place entire objects in managed memory by
+so they can be freely shared with the GPU, crossing host device boundaries at will. For this to work your
+objects need to have members decorated with __host__ __device__ and need to provide custom new and delete
+allocators that place the objects themselves on the managed heap.
 
+## Additional Notes
 
-About This Repository
----------------------
+Note that the unit testing I added is very barebones, as I do not have access to the original test and
+benchmarking suite done by the authors at TU Graz.
 
-This repository is a clone of the **ScatterAlloc** project from the
-[Managed Volume Processing](http://www.icg.tugraz.at/project/mvp)
-group at [Institute for Computer Graphics and Vision](http://www.icg.tugraz.at),
-TU Graz (kudos!).
+Also note that my main test environment is using clang++-20 as the CUDA compiler. The CMakeLists.txt may
+require some modifications to work with other compilers
 
-We fixed and backported ~~minor~~ bugs we found while developing
-[mallocMC](https://github.com/ComputationalRadiationPhysics/mallocMC)
-to this repository.
+## Possible Future Improvements
 
+The host specific alloc and dealloc functions currently call into device kernels instead of providing a
+performant, CPU-optimized implementation of these functions.
 
-Literature
-----------
-
-Just a random link collection:
-
-- [Paper](http://www.icg.tugraz.at/Members/steinber/scatteralloc-1) by
-  Markus Steinberger, Michael Kenzel, Bernhard Kainz and Dieter Schmalstieg
-
-- 2012, May 5th: [Presentation](http://innovativeparallel.org/Presentations/inPar_kainz.pdf)
-        at *Innovative Parallel Computing 2012* by *Bernhard Kainz*
-
-
-License
--------
-
-We distribute the modified software under the same license as the
-original software from TU Graz (by using the
-[MIT License](https://en.wikipedia.org/wiki/MIT_License)).
-Please refer to the [LICENSE](LICENSE) file.
+An code example showing passing C++ objects across device boundaries would be nice to have.

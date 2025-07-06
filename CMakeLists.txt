@@ -1,22 +1,46 @@
-project(ScatterAlloc)
-cmake_minimum_required(VERSION 2.6)
+cmake_minimum_required(VERSION 3.20)
 
-find_package(CUDA REQUIRED)
-set(CUDA_NVCC_FLAGS "-arch=sm_20;-use_fast_math;")
-set(CUDA_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR})
-include_directories(${CUDA_INCLUDE_DIRS})
-cuda_include_directories(${CUDA_INCLUDE_DIRS})
+# Use clang-20 for all languages
+set(CMAKE_C_COMPILER clang)
+set(CMAKE_CXX_COMPILER clang++)
+set(CMAKE_CUDA_COMPILER clang++)
 
-OPTION(CUDA_OUTPUT_INTERMEDIATE_CODE "Output ptx code" OFF)
-if(CUDA_OUTPUT_INTERMEDIATE_CODE)
-set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS};-Xptxas;-v;--keep")
-endif(CUDA_OUTPUT_INTERMEDIATE_CODE)
+# CUDA specific settings
+set(CMAKE_CUDA_ARCHITECTURES 70)
+set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -Wno-unknown-cuda-version")
 
-SET(CUDA_OPTIMIZATION_TYPE "unset" CACHE STRING "CUDA Optimization")
-set_property(CACHE CUDA_OPTIMIZATION_TYPE PROPERTY STRINGS "unset;-G0;-O0;-O1;-O2;-O3")
-if(NOT ${CUDA_OPTIMIZATION_TYPE} STREQUAL  "unset")
-  set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS};${CUDA_OPTIMIZATION_TYPE}")
-endif()
+# use RelWithDebInfo build type
+set(CMAKE_BUILD_TYPE RelWithDebInfo)
 
-cuda_add_executable(ScatterAllocExample 
-                    example.cu )
+# set language standards to C++23
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CUDA_STANDARD 23)
+
+project(cudamanagedheap LANGUAGES CUDA CXX)
+
+include(FetchContent)
+FetchContent_Declare(
+    googletest
+    URL https://github.com/google/googletest/archive/refs/heads/main.zip
+    DOWNLOAD_EXTRACT_TIMESTAMP true
+)
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(googletest)
+include(GoogleTest)
+
+enable_testing()
+
+add_executable(test_managedheap tests/test_managedheap.cu)
+target_link_libraries(test_managedheap gtest)
+gtest_discover_tests(test_managedheap)
+
+target_include_directories(test_managedheap PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+
+add_executable(cudamanagedheap examples/cudamanagedheap.cu)
+
+target_include_directories(cudamanagedheap PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)

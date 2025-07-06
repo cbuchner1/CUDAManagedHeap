@@ -29,25 +29,54 @@
   THE SOFTWARE.
 */
 
-#ifndef HEAP_CUH
-#define HEAP_CUH
+#pragma once
 
+#include "heaputils.cuh"
+
+#include <stdint.h>
 #include <stdio.h>
-#include "tools/utils.h"
 
 namespace GPUTools
 {
-  template<uint pagesize = 4096, uint accessblocks = 8, uint regionsize = 16, uint wastefactor = 2, bool use_coalescing = true, bool resetfreedpages = false>
-  class DeviceHeap
+  template<uint pagesize = 65536, uint accessblocks = 8, uint regionsize = 16, uint wastefactor = 2, bool use_coalescing = true, bool resetfreedpages = false>
+  class ManagedHeap
   {
   public:
-    typedef DeviceHeap<pagesize,accessblocks,regionsize,wastefactor,use_coalescing,resetfreedpages> myType;
+    typedef ManagedHeap<pagesize,accessblocks,regionsize,wastefactor,use_coalescing,resetfreedpages> myType;
     static const uint _pagesize = pagesize;
     static const uint _accessblocks = accessblocks;
     static const uint _regionsize = regionsize;
     static const uint _wastefactor = wastefactor;
     static const bool _use_coalescing = use_coalescing;
     static const bool _resetfreedpages = resetfreedpages;
+
+    /**
+     * Allocate the ManagedHeap object in CUDA managed memory
+     */
+    static void* operator new(size_t size)
+    {
+      void* ptr = nullptr;
+      CUDA_CHECKED_CALL(cudaMallocManaged(&ptr, size));
+      return ptr;
+    }
+
+    /**
+     * Free the ManagedHeap object from CUDA managed memory
+     */
+    static void operator delete(void* ptr) noexcept
+    {
+      cudaFree(ptr);
+    }
+
+    /**
+     * Host side constructor taking a memory heap size argument.
+     */
+    __host__ ManagedHeap(size_t memsize = 8*1024U*1024U);
+
+    /**
+     * Host side destructor that also cleans up the allocated memory.
+     */
+    __host__ ~ManagedHeap();
 
   private:
 
@@ -122,6 +151,7 @@ namespace GPUTools
     uint _pagebasedMutex;
     volatile uint _firstFreePageBased;
     volatile uint _firstfreeblock;
+    void *_pool;
 
     /**
      * randInit should create an random offset which can be used
@@ -569,7 +599,7 @@ namespace GPUTools
     }
 
       /**
-    * alloc_internal_coalesced cobmines the memory requests of all threads within a warp and allocates them together
+    * alloc_internal_coalesced combines the memory requests of all threads within a warp and allocates them together
     * idea is based on XMalloc: A Scalable Lock-free Dynamic Memory Allocator for Many-core Machines
     * doi: 10.1109/CIT.2010.206
     * @param bytes number of bytes to allocate
@@ -592,7 +622,7 @@ namespace GPUTools
       warp_sizecounter[warpid] = 16;
 
       bool coalescible = bytes > 0 && bytes < (pagesize / 32);
-      uint threadcount = __popc(__ballot(coalescible));
+      uint threadcount = __popc(__ballot_sync(__activemask(), coalescible));
 
       if (coalescible && threadcount > 1) 
       {
@@ -715,6 +745,7 @@ namespace GPUTools
         _firstfreeblock = 0;
         _pagebasedMutex = 0;
         _firstFreePageBased = numpages-1;
+        _pool = memory;
 
         if( (char*) (_page+numpages) > (char*)(memory) + memsize)
           printf("error in heap alloc: numpages too high\n");
@@ -737,17 +768,17 @@ namespace GPUTools
      *        page. This size must be appropriate to the formatting of the
      *        page.
      */
-    __device__ unsigned countFreeChunksInPage(uint32 page, uint32 chunksize){
-      uint32 filledChunks = _ptes[page].count;
+    __device__ unsigned countFreeChunksInPage(uint32_t page, uint32_t chunksize){
+      uint32_t filledChunks = _ptes[page].count;
       if(chunksize <= HierarchyThreshold)
       {
-        uint32 segmentsize = chunksize*32 + sizeof(uint32); //each segment can hold 32 2nd-level chunks
-        uint32 fullsegments = pagesize / segmentsize; //there might be space for more than 32 segments with 32 2nd-level chunks
-        uint32 additional_chunks = max(0,(int)pagesize - (int)fullsegments*segmentsize - (int)sizeof(uint32))/chunksize;
-        uint32 level2Chunks = fullsegments * 32 + additional_chunks;
+        uint32_t segmentsize = chunksize*32 + sizeof(uint32_t); //each segment can hold 32 2nd-level chunks
+        uint32_t fullsegments = pagesize / segmentsize; //there might be space for more than 32 segments with 32 2nd-level chunks
+        uint32_t additional_chunks = max(0,(int)pagesize - (int)fullsegments*segmentsize - (int)sizeof(uint32_t))/chunksize;
+        uint32_t level2Chunks = fullsegments * 32 + additional_chunks;
 
         //if(filledChunks > 0 || __popc(_ptes[page].bitmask) != 0){
-        //  uint32 freeChunks = level2Chunks-filledChunks;
+        //  uint32_t freeChunks = level2Chunks-filledChunks;
         //  uint* onpagemasks = (uint*)(_page[page].data + chunksize*(fullsegments*32 + additional_chunks));
         //  printf("Page: %u chunksize: %u  segmentsize: %u  additionalchunks: %u  chunksInPage: %u  filledChunks: %u  freeChunks %u  _ptes.bitmask: %X  onPageMasks(%u): %X %X %X %X %X %X %X %X\n",
         //      page, _ptes[page].chunksize, segmentsize, additional_chunks, level2Chunks, filledChunks, freeChunks, _ptes[page].bitmask, fullsegments+1,
@@ -763,7 +794,7 @@ namespace GPUTools
         //}
         return level2Chunks - filledChunks;
       }else{
-        uint32 chunksinpage = min(pagesize / chunksize, 32); //without hierarchy, there can not be more than 32 chunks
+        uint32_t chunksinpage = min(pagesize / chunksize, 32); //without hierarchy, there can not be more than 32 chunks
         return chunksinpage - filledChunks;
       }
     }
@@ -784,20 +815,20 @@ namespace GPUTools
      * @param stride the stride should be equal to the number of different
      *        gids (and therefore of value max(gid)-1)
      */
-    __device__ unsigned getAvailaibleSlotsDeviceFunction(size_t slotSize, int gid, int stride)
+    __device__ unsigned getAvailableSlotsDeviceFunction(size_t slotSize, int gid, int stride)
     {
       unsigned slotcount = 0;
       if(slotSize < pagesize){ // multiple slots per page
-        for(uint32 currentpage = gid; currentpage < _numpages; currentpage += stride){
-          uint32 maxchunksize = min(pagesize, wastefactor*(uint32)slotSize);
-          uint32 region = currentpage/regionsize;
-          uint32 regionfilllevel = _regions[region];
+        for(uint32_t currentpage = gid; currentpage < _numpages; currentpage += stride){
+          uint32_t maxchunksize = min(pagesize, wastefactor*(uint32_t)slotSize);
+          uint32_t region = currentpage/regionsize;
+          uint32_t regionfilllevel = _regions[region];
 
-          uint32 chunksize = _ptes[currentpage].chunksize;
+          uint32_t chunksize = _ptes[currentpage].chunksize;
           if(chunksize >= slotSize && chunksize <= maxchunksize){ //how many chunks left? (each chunk is big enough)
             slotcount += countFreeChunksInPage(currentpage, chunksize);
           }else if(chunksize == 0){
-            chunksize  = max((uint32)slotSize, minChunkSize1); //ensure minimum chunk size
+            chunksize  = max((uint32_t)slotSize, minChunkSize1); //ensure minimum chunk size
             slotcount += countFreeChunksInPage(currentpage, chunksize); //how many chunks fit in one page?
           }else{
             continue; //the chunks on this page are too small for the request :(
@@ -805,9 +836,9 @@ namespace GPUTools
         }
       }else{ // 1 slot needs multiple pages
         if(gid > 0) return 0; //do this serially
-        uint32 pagestoalloc = divup((uint32)slotSize, pagesize);
-        uint32 freecount = 0;
-        for(uint32 currentpage = _numpages; currentpage > 0;){ //this already includes all superblocks
+        uint32_t pagestoalloc = divup((uint32_t)slotSize, pagesize);
+        uint32_t freecount = 0;
+        for(uint32_t currentpage = _numpages; currentpage > 0;){ //this already includes all superblocks
           --currentpage;
           if(_ptes[currentpage].chunksize == 0){
             if(++freecount == pagestoalloc){
@@ -822,77 +853,125 @@ namespace GPUTools
       return slotcount;
     }
 
+    /** Count, how many elements can be allocated at maximum
+     *
+     * Takes an input size and determines, how many elements of this size can
+     * be allocated with the CreationPolicy Scatter. This will return the
+     * maximum number of free slots of the indicated size. It is not
+     * guaranteed where these slots are (regarding fragmentation). Therefore,
+     * the practically usable number of slots might be smaller. This function
+     * is executed in parallel. Speedup can possibly be increased by a higher
+     * amount of parallel workers.
+     *
+     * @param slotSize the size of allocatable elements to count
+     */
+    __host__ unsigned getAvailableSlots(size_t const slotSize);
     
     /**
      * alloc allocates the requested number of bytes via the heap
      * @return pointer to the memory region, 0 if it fails
      */
-    __device__ void* alloc(uint bytes)
-    {
-      if(use_coalescing)
-        return alloc_internal_coalesced(bytes);
-      else
-        return alloc_internal_direct(bytes);
-    }
+    __host__ __device__ void* alloc(uint bytes);
 
     /**
      * dealloc frees the memory regions previously acllocted
      * @param mem pointer to the memory region to free
      */
-    __device__ void dealloc(void* mem)
-    {
-      if(use_coalescing)
-        dealloc_internal_coalesced(mem);
-      else
-        dealloc_internal_direct(mem);
-    }
+    __host__ __device__ void dealloc(void* mem);
   };
-
 
   /**
     * global init heap method
     */
   template<uint pagesize, uint accessblocks, uint regionsize, uint wastefactor,  bool use_coalescing, bool resetfreedpages>
-  __global__ void initHeap(DeviceHeap<pagesize, accessblocks, regionsize, wastefactor, use_coalescing, resetfreedpages>* heap, void* heapmem, size_t memsize)
+  __global__ void initHeap(ManagedHeap<pagesize, accessblocks, regionsize, wastefactor, use_coalescing, resetfreedpages>* heap, void* heapmem, size_t memsize)
   {
     heap->init(heapmem, memsize);
   }
 
   template<uint pagesize, uint accessblocks, uint regionsize, uint wastefactor,  bool use_coalescing, bool resetfreedpages>
-  __global__ void getAvailableSlotsKernel(DeviceHeap<pagesize, accessblocks, regionsize, wastefactor, use_coalescing, resetfreedpages>* heap, size_t slotSize, unsigned* slots){
+  __host__ ManagedHeap<pagesize,accessblocks,regionsize,wastefactor,use_coalescing,resetfreedpages>::ManagedHeap(size_t memsize)
+  {
+    void* pool;
+    CUDA_CHECKED_CALL(cudaMallocManaged(&pool, memsize));
+    initHeap<<<1,256>>>(this, pool, memsize);
+  }
+
+  template<uint pagesize, uint accessblocks, uint regionsize, uint wastefactor,  bool use_coalescing, bool resetfreedpages>
+  __host__ ManagedHeap<pagesize,accessblocks,regionsize,wastefactor,use_coalescing,resetfreedpages>::~ManagedHeap()
+  {
+    cudaFree(_pool);
+  }
+
+  template<uint pagesize, uint accessblocks, uint regionsize, uint wastefactor, bool use_coalescing, bool resetfreedpages>
+  __global__ void heapAllocKernel(ManagedHeap<pagesize, accessblocks, regionsize, wastefactor, use_coalescing, resetfreedpages>* heap, size_t bytes, void** result){
+    if(threadIdx.x==0 && blockIdx.x==0)
+      *result = heap->alloc(bytes);
+  }
+
+  template<uint pagesize, uint accessblocks, uint regionsize, uint wastefactor, bool use_coalescing, bool resetfreedpages>
+  __host__ __device__ void* ManagedHeap<pagesize,accessblocks,regionsize,wastefactor,use_coalescing,resetfreedpages>::alloc(uint bytes)
+  {
+#if __CUDA_ARCH__
+    if(use_coalescing)
+      return alloc_internal_coalesced(bytes);
+    else
+      return alloc_internal_direct(bytes);
+#else
+    void* h_res = nullptr;
+    void** d_res;
+    CUDA_CHECKED_CALL(cudaMalloc(&d_res, sizeof(void*)));
+    heapAllocKernel<<<1,1>>>(this, bytes, d_res);
+    CUDA_CHECKED_CALL(cudaDeviceSynchronize());
+    CUDA_CHECK_ERROR();
+    CUDA_CHECKED_CALL(cudaMemcpy(&h_res, d_res, sizeof(void*), cudaMemcpyDeviceToHost));
+    cudaFree(d_res);
+    return h_res;
+#endif
+  }
+
+  template<uint pagesize, uint accessblocks, uint regionsize, uint wastefactor, bool use_coalescing, bool resetfreedpages>
+  __global__ void heapDeallocKernel(ManagedHeap<pagesize, accessblocks, regionsize, wastefactor, use_coalescing, resetfreedpages>* heap, void* ptr){
+    if(threadIdx.x==0 && blockIdx.x==0)
+      heap->dealloc(ptr);
+  }
+  
+  template<uint pagesize, uint accessblocks, uint regionsize, uint wastefactor,  bool use_coalescing, bool resetfreedpages>
+  __host__ __device__ void ManagedHeap<pagesize,accessblocks,regionsize,wastefactor,use_coalescing,resetfreedpages>::dealloc(void* mem)
+  {
+#if __CUDA_ARCH__
+    if(use_coalescing)
+      dealloc_internal_coalesced(mem);
+    else
+      dealloc_internal_direct(mem);
+#else
+    heapDeallocKernel<<<1,1>>>(this, mem);
+    CUDA_CHECKED_CALL(cudaDeviceSynchronize());
+    CUDA_CHECK_ERROR();
+#endif
+  }
+
+  template<uint pagesize, uint accessblocks, uint regionsize, uint wastefactor,  bool use_coalescing, bool resetfreedpages>
+  __global__ void getAvailableSlotsKernel(ManagedHeap<pagesize, accessblocks, regionsize, wastefactor, use_coalescing, resetfreedpages>* heap, size_t slotSize, unsigned* slots){
     int gid       = threadIdx.x + blockIdx.x*blockDim.x;
     int nWorker   = gridDim.x * blockDim.x;
-    unsigned temp = heap->getAvailaibleSlotsDeviceFunction(slotSize, gid, nWorker);
+    unsigned temp = heap->getAvailableSlotsDeviceFunction(slotSize, gid, nWorker);
     if(temp) atomicAdd(slots, temp);
   }
 
+  template<uint pagesize, uint accessblocks, uint regionsize, uint wastefactor, bool use_coalescing, bool resetfreedpages>
+  __host__ unsigned ManagedHeap<pagesize,accessblocks,regionsize,wastefactor,use_coalescing,resetfreedpages>::getAvailableSlots(size_t const slotSize){
+    unsigned h_slots = 0;
+    unsigned* d_slots;
+    CUDA_CHECKED_CALL(cudaMalloc((void**) &d_slots, sizeof(unsigned)));
+    CUDA_CHECKED_CALL(cudaMemcpy(d_slots, &h_slots, sizeof(unsigned), cudaMemcpyHostToDevice));
 
-  /**
-  * host heap class
-  */
-  template<uint pagesize = 4096, uint accessblocks = 8, uint regionsize = 16, uint wastefactor = 2, bool use_coalescing = true, bool resetfreedpages = true>
-  class Heap
-  {
-  public:
-    typedef DeviceHeap<pagesize, accessblocks, regionsize, wastefactor, use_coalescing, resetfreedpages> device_heap_t;
-  private:
-    void* pool;
-    size_t memsize;
-    DeviceHeap<pagesize, accessblocks, regionsize, wastefactor, use_coalescing, resetfreedpages>* heap;
+    getAvailableSlotsKernel<<<64,256>>>(this,slotSize, d_slots);
+    CUDA_CHECKED_CALL(cudaDeviceSynchronize());
+    CUDA_CHECK_ERROR();
 
-  public:
-    Heap(device_heap_t* heap, size_t memsize)
-      : memsize(memsize)
-    {
-      CUDA_CHECKED_CALL(cudaMalloc(&pool, memsize));
-      initHeap<pagesize, accessblocks, regionsize, wastefactor, use_coalescing, resetfreedpages><<<1,128>>>(heap, pool, memsize);
-    }
-
-    ~Heap()
-    {
-      cudaFree(pool);
-    }
-  };
+    CUDA_CHECKED_CALL(cudaMemcpy(&h_slots, d_slots, sizeof(unsigned), cudaMemcpyDeviceToHost));
+    cudaFree(d_slots);
+    return h_slots;
+  }
 }
-
-#endif
