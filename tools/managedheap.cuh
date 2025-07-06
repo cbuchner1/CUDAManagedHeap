@@ -614,34 +614,47 @@ namespace GPUTools
       //take care of padding
       bytes = (bytes + dataAlignment - 1) & ~(dataAlignment-1);
 
-      bool can_use_coalescing = false; 
+      bool can_use_coalescing = false;
       uint myoffset = 0;
       uint warpid = GPUTools::warpid();
 
       //init with initial counter
       warp_sizecounter[warpid] = 16;
 
+#if __CUDA_ARCH__ >= 700
+      // ensure all threads of the warp have written the initial counter
+      __syncwarp();
+#endif
+
       bool coalescible = bytes > 0 && bytes < (pagesize / 32);
       uint threadcount = __popc(__ballot_sync(__activemask(), coalescible));
 
-      if (coalescible && threadcount > 1) 
+      if (coalescible && threadcount > 1)
       {
         myoffset = atomicAdd(&warp_sizecounter[warpid], bytes);
         can_use_coalescing = true;
       }
+
+#if __CUDA_ARCH__ >= 700
+      // wait for all atomicAdds to finish so warp_sizecounter holds the final value
+      __syncwarp();
+#endif
 
       uint req_size = bytes;
       if (can_use_coalescing)
         req_size = (myoffset == 16) ? warp_sizecounter[warpid] : 0;
 
       char* myalloc = (char*)alloc_internal_direct(req_size);
-      if (req_size && can_use_coalescing) 
+      if (req_size && can_use_coalescing)
       {
         warp_res[warpid] = myalloc;
         if (myalloc != 0)
           *(uint*)myalloc = threadcount;
       }
       __threadfence_block();
+#if __CUDA_ARCH__ >= 700
+      __syncwarp();
+#endif
 
       void *myres = myalloc;
       if(can_use_coalescing) 

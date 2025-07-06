@@ -7,9 +7,9 @@
 // accessblocks ... number of superblocks
 // regionsize ... number of regions for meta data structure
 // wastefactor ... how much memory can be wasted per alloc (multiplicative factor)
-// use_coalescing ... combine memory requests of within each warp
+// use_coalescing ... combine memory requests within each warp
 // resetfreedpages ... allow pages to be reused with a different size
-#define HEAPARGS 65536, 8, 16, 2, false, true
+#define HEAPARGS 65536, 8, 16, 2, true, true
 #define _DEBUG 1 // makes CUDA_CHECKED_CALL throw
 #include "examples/cudamanagedheap.cuh"
 
