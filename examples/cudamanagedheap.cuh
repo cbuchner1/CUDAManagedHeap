@@ -71,9 +71,5 @@ __device__ void  free(void* p) __THROW
 #endif //__CUDACC__
 
 // explicitly force instantiation of these kernels.
-// for whatever reason this is not happening automatically.
-static void dummy()
-{
-  GPUTools::heapAllocKernel<<<1,1>>>(theHeap_ph, 123, nullptr);
-  GPUTools::heapDeallocKernel<<<1,1>>>(theHeap_ph, nullptr);
-}
+template __global__ void GPUTools::heapAllocKernel(heap_t* heap, size_t bytes, void** result);
+template __global__ void GPUTools::heapDeallocKernel(heap_t* heap, void* ptr);
