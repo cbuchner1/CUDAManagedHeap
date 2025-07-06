@@ -21,6 +21,12 @@ benchmarking suite done by the authors at TU Graz.
 Also note that my main test environment is using clang++-20 as the CUDA compiler. The CMakeLists.txt may
 require some modifications to work with other compilers
 
+## Current Problems
+
+The use_coalescing feature of the heap currently has problems as it makes the heap not recover all
+deallocated bytes, when queried with getAvailableBytes(). Therefore I disabled it in the examples
+and unit tests. I will have to investigate this.
+
 ## Possible Future Improvements
 
 The host specific alloc and dealloc functions currently call into device kernels instead of providing a

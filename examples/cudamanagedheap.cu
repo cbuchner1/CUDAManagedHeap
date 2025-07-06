@@ -33,11 +33,11 @@ typedef unsigned int uint;
 //set the template arguments using HEAPARGS
 // pagesize ... byter per page
 // accessblocks ... number of superblocks
-// regionsize ... number of regions for meta data structur
+// regionsize ... number of regions for meta data structure
 // wastefactor ... how much memory can be wasted per alloc (multiplicative factor)
 // use_coalescing ... combine memory requests of within each warp
 // resetfreedpages ... allow pages to be reused with a different size
-#define HEAPARGS 65536, 8, 16, 2, true, false
+#define HEAPARGS 65536, 8, 16, 2, false, true
 
 #define _DEBUG 1 // makes CUDA_CHECKED_CALL throw
 

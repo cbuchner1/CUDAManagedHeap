@@ -1,8 +1,17 @@
-#include <gtest/gtest.h>
-#define _DEBUG 1 // makes CUDA_CHECKED_CALL throw
-#include "examples/cudamanagedheap.cuh"
 #include <cstring>
 #include <iostream>
+#include <gtest/gtest.h>
+
+//set the template arguments using HEAPARGS
+// pagesize ... byter per page
+// accessblocks ... number of superblocks
+// regionsize ... number of regions for meta data structure
+// wastefactor ... how much memory can be wasted per alloc (multiplicative factor)
+// use_coalescing ... combine memory requests of within each warp
+// resetfreedpages ... allow pages to be reused with a different size
+#define HEAPARGS 65536, 8, 16, 2, false, true
+#define _DEBUG 1 // makes CUDA_CHECKED_CALL throw
+#include "examples/cudamanagedheap.cuh"
 
 constexpr size_t HEAP_SIZE = 8U*1024U*1024U;
 
@@ -60,24 +69,6 @@ __global__ void Free_kernel(uint** parray)
     free(parray[threadIdx.x + blockIdx.x*blockDim.x]);
 }
 
-TEST_F(ManagedHeapTest, MallocFreeOnDevice)
-{
-    size_t block = 128;
-    size_t grid = 64;
-
-    uint** data;
-    CUDA_CHECKED_CALL(cudaMallocManaged(&data, grid * block * sizeof(uint*)));
-
-    Malloc_kernel<<<grid, block>>>(data);
-    CUDA_CHECKED_CALL(cudaDeviceSynchronize());
-
-    Free_kernel<<<grid, block>>>(data);
-    CUDA_CHECKED_CALL(cudaDeviceSynchronize());
-
-    cudaFree(data);
-}
-
-
 TEST_F(ManagedHeapTest, getAvailableBytes)
 {
     size_t block = 128;
@@ -93,18 +84,33 @@ TEST_F(ManagedHeapTest, getAvailableBytes)
     CUDA_CHECKED_CALL(cudaDeviceSynchronize());
 
     size_t bytes_afterAllocation = theHeap_ph->getAvailableBytes();
-
-    EXPECT_LT(bytes_afterAllocation, bytes_initialAmount);
+    //std::cout << "Minimum difference expected: " << grid * block * sizeof(uint) << " vs difference seen: " << bytes_initialAmount-bytes_afterAllocation << std::endl;
+    EXPECT_LT(bytes_afterAllocation, bytes_initialAmount - grid * block * sizeof(uint));
 
     Free_kernel<<<grid, block>>>(data);
     CUDA_CHECKED_CALL(cudaDeviceSynchronize());
 
     size_t bytes_afterFree = theHeap_ph->getAvailableBytes();
+    //std::cout << "Minimum difference expected: " << grid * block * sizeof(uint) << " vs difference seen: " << bytes_afterFree-bytes_afterAllocation << std::endl;
+    EXPECT_GE(bytes_afterFree, bytes_afterAllocation + grid * block * sizeof(uint));
+    EXPECT_EQ(bytes_initialAmount, bytes_afterFree);
 
-    EXPECT_GT(bytes_afterFree, bytes_afterAllocation);
+    cudaFree(data);
+}
 
-    // NOTE: this expectation isn't yet holding up for some reason
-    //EXPECT_EQ(bytes_initialAmount, bytes_afterFree);
+TEST_F(ManagedHeapTest, MallocFreeOnDevice)
+{
+    size_t block = 128;
+    size_t grid = 64;
+
+    uint** data;
+    CUDA_CHECKED_CALL(cudaMallocManaged(&data, grid * block * sizeof(uint*)));
+
+    Malloc_kernel<<<grid, block>>>(data);
+    CUDA_CHECKED_CALL(cudaDeviceSynchronize());
+
+    Free_kernel<<<grid, block>>>(data);
+    CUDA_CHECKED_CALL(cudaDeviceSynchronize());
 
     cudaFree(data);
 }
