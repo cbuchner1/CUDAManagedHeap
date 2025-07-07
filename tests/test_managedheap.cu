@@ -3,7 +3,7 @@
 #include <gtest/gtest.h>
 
 //set the template arguments using HEAPARGS
-// pagesize ... byter per page
+// pagesize ... bytes per page
 // accessblocks ... number of superblocks
 // regionsize ... number of regions for meta data structure
 // wastefactor ... how much memory can be wasted per alloc (multiplicative factor)

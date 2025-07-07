@@ -31,7 +31,7 @@
 typedef unsigned int uint;
 
 //set the template arguments using HEAPARGS
-// pagesize ... byter per page
+// pagesize ... bytes per page
 // accessblocks ... number of superblocks
 // regionsize ... number of regions for meta data structure
 // wastefactor ... how much memory can be wasted per alloc (multiplicative factor)
@@ -52,7 +52,6 @@ typedef unsigned int uint;
 
 void runexample(int cuda_device);
 
-
 int main(int argc, char** argv)
 {
    try
@@ -64,12 +63,12 @@ int main(int argc, char** argv)
     std::cout << "Using device: " << deviceProp.name << std::endl;
 
 	  if( deviceProp.major < 2 ) {
-		  std::cerr << "This GPU with Compute Capability " << deviceProp.major 
+      std::cerr << "This GPU with Compute Capability " << deviceProp.major
         << "." << deviceProp.minor <<  " does not meet minimum requirements." << std::endl;
 		  std::cerr << "A GPU with Compute Capability >= 2.0 is required." << std::endl;
       return -2;
 	  }
-  
+
     runexample(cuda_device);
 
     cudaDeviceReset();
@@ -188,7 +187,6 @@ __global__ void readVectorOnGPU(const TestVector<int>& input)
     printf("input[%d] = %d\n", i, input[i]);
   }
 }
-
 
 void runexample(int cuda_device)
 {

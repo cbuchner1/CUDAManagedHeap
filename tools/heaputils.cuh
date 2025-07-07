@@ -100,7 +100,7 @@ namespace CUDA
 
 
 namespace GPUTools
-{    
+{
 
   template<int PSIZE>
   class __PointerEquivalent
@@ -187,6 +187,6 @@ namespace GPUTools
   }
 
   template<class T>
-  __host__ __device__ inline T divup(T a, T b) { return (a + b - 1)/b; } 
+  __host__ __device__ inline T divup(T a, T b) { return (a + b - 1)/b; }
 
 }

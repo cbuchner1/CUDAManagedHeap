@@ -131,9 +131,9 @@ namespace GPUTools
       __device__ void init(uint previous_chunksize = 0)
       {
         //TODO: we can speed this up for pages being freed, because we know the
-        //chunksize used before (these bits must be zero again) 
+        //chunksize used before (these bits must be zero again)
 
-        //init the entire data which can hold bitfields 
+        //init the entire data which can hold bitfields
         uint max_bits = min(32*32,pagesize/minChunkSize1);
         uint max_entries = GPUTools::divup<uint>(max_bits/8,sizeof(uint))*sizeof(uint);
         uint* write = (uint*)(data+(pagesize-max_entries));
@@ -182,7 +182,7 @@ namespace GPUTools
       //and return the new spot
       return (spot + step) % spots;
     }
-   
+
     /**
      * usespot marks finds one free spot in the bitfield, marks it and returns its offset
      * @param bitfield pointer to the bitfield to use
@@ -199,14 +199,14 @@ namespace GPUTools
         uint old = atomicOr(bitfield, mask);
         if( (old & mask) == 0)
           return spot;
-        // note: __popc(old) == spots should be sufficient, 
+        // note: __popc(old) == spots should be sufficient,
         //but if someone corrupts the memory we end up in an endless loop in here...
         if(__popc(old) >= spots)
           return -1;
         spot = nextspot(old, spot, spots);
       }
     }
-    
+
     /**
      * addChunkHierarchy finds a free chunk on a page which uses bit fields on the page
      * @param chunksize the chunksize of the page
@@ -260,9 +260,9 @@ namespace GPUTools
     __device__ inline void* tryUsePage(uint page, uint chunksize)
     {
       void* chunk_ptr = NULL;
-      //increse the fill level
+      //increase the fill level
       uint filllevel = atomicAdd((uint*)&(_ptes[page].count), 1);
-      //recheck chunck size (it could be that the page got freed in the meanwhile...)
+      //recheck chunk size (it could be that the page got freed in the meanwhile...)
       if(!resetfreedpages || _ptes[page].chunksize == chunksize)
       {
         if(chunksize <= HierarchyThreshold)
@@ -284,7 +284,7 @@ namespace GPUTools
         }
       }
 
-      //this one is full/not useable
+      //this one is full/not usable
       if(chunk_ptr == NULL)
         atomicSub((uint*)&(_ptes[page].count), 1);
 
@@ -319,7 +319,7 @@ namespace GPUTools
               {
                 uint chunksize = _ptes[ptetry].chunksize;
                 if(chunksize >= bytes && chunksize <= maxchunksize)
-                {            
+                {
                   void * res = tryUsePage(ptetry, chunksize);
                   if(res != 0)  return res;
                 }
@@ -396,7 +396,7 @@ namespace GPUTools
       //reduce filllevel as free
       uint oldfilllevel = atomicSub((uint*)&_ptes[page].count, 1);
 
-      
+
       if(resetfreedpages)
       {
         if(oldfilllevel == 1)
@@ -421,7 +421,7 @@ namespace GPUTools
       if(oldfilllevel == pagesize / 2 / chunksize)
       {
         uint region = page / regionsize;
-        _regions[region] = 0;        
+        _regions[region] = 0;
         uint block = region * regionsize * accessblocks / _numpages ;
         if(warpid() + laneid() == 0)
           atomicMin((uint*)&_firstfreeblock, block);
@@ -429,7 +429,7 @@ namespace GPUTools
     }
 
     /**
-     * markpages markes a fixed number of pages as used
+     * markpages marks a fixed number of pages as used
      * @param startpage first page to mark
      * @param pages number of pages to mark
      * @param bytes number of overall bytes to mark pages for
@@ -437,19 +437,19 @@ namespace GPUTools
      */
     __device__ bool markpages(uint startpage, uint pages, uint bytes)
     {
-      int abord = -1;
+      int abortPage = -1;
       for(uint trypage = startpage; trypage < startpage + pages; ++trypage)
       {
         uint old = atomicCAS((uint*)&_ptes[trypage].chunksize, 0, bytes);
         if(old != 0)
         {
-          abord = trypage;
+          abortPage = trypage;
           break;
         }
       }
-      if(abord == -1)
+      if(abortPage == -1)
         return true;
-      for(uint trypage = startpage; trypage < abord; ++trypage)
+      for(uint trypage = startpage; trypage < abortPage; ++trypage)
         atomicCAS((uint*)&_ptes[trypage].chunksize, bytes, 0);
       return false;
     }
@@ -559,7 +559,7 @@ namespace GPUTools
       //take care of padding
       bytes = (bytes + dataAlignment - 1) & ~(dataAlignment-1);
       if(bytes < pagesize)
-        //chunck based 
+        //chunk based
         return allocChunked(bytes);
       else
         //allocate a range of pages
@@ -657,11 +657,11 @@ namespace GPUTools
 #endif
 
       void *myres = myalloc;
-      if(can_use_coalescing) 
+      if(can_use_coalescing)
       {
         if(warp_res[warpid] != 0)
           myres = warp_res[warpid] + myoffset;
-        else 
+        else
           myres = 0;
       }
       return myres;
@@ -698,7 +698,7 @@ namespace GPUTools
       else
         deallocPageBased(mem, page, chunksize);
     }
-      
+
 
   public:
 
@@ -737,9 +737,9 @@ namespace GPUTools
         if(linid == 0) printf("Heap Warning: needed to reduce number of regions to stay within memory limit\n");
       }
       //if(linid == 0) printf("Heap info: wasting %d bytes\n",(((POINTEREQUIVALENT)memory) + memsize) - (POINTEREQUIVALENT)(regions + numregions));
-            
+
       threads = threads*blocks;
-      
+
       for(uint i = linid; i < numpages; i+= threads)
       {
         ptes[i].init();
@@ -763,7 +763,7 @@ namespace GPUTools
         if( (char*) (_page+numpages) > (char*)(memory) + memsize)
           printf("error in heap alloc: numpages too high\n");
       }
-      
+
     }
 
 
@@ -823,7 +823,7 @@ namespace GPUTools
      *
      * @param slotSize the amount of bytes that a single slot accounts for
      * @param gid the id of the thread. this id does not have to correspond
-     *        with threadId.x, but there must be a continous range of ids
+     *        with threadId.x, but there must be a continuous range of ids
      *        beginning from 0.
      * @param stride the stride should be equal to the number of different
      *        gids (and therefore of value max(gid)-1)
@@ -909,7 +909,7 @@ namespace GPUTools
      * used for getAvailableSlots and is executed in parallel on the device.
      */
     __host__ size_t getAvailableBytes();
-    
+
     /**
      * alloc allocates the requested number of bytes via the heap
      * @return pointer to the memory region, 0 if it fails
@@ -983,7 +983,7 @@ namespace GPUTools
     if(threadIdx.x==0 && blockIdx.x==0)
       heap->dealloc(ptr);
   }
-  
+
   template<uint pagesize, uint accessblocks, uint regionsize, uint wastefactor,  bool use_coalescing, bool resetfreedpages>
   __host__ __device__ void ManagedHeap<pagesize,accessblocks,regionsize,wastefactor,use_coalescing,resetfreedpages>::dealloc(void* mem)
   {
