@@ -53,7 +53,7 @@ namespace GPUTools
     /**
      * Allocate the ManagedHeap object in CUDA managed memory
      */
-    static void* operator new(size_t size)
+    void* operator new(size_t size)
     {
       void* ptr = nullptr;
       CUDA_CHECKED_CALL(cudaMallocManaged(&ptr, size));
@@ -63,7 +63,7 @@ namespace GPUTools
     /**
      * Free the ManagedHeap object from CUDA managed memory
      */
-    static void operator delete(void* ptr) noexcept
+    void operator delete(void* ptr) noexcept
     {
       cudaFree(ptr);
     }
@@ -163,7 +163,7 @@ namespace GPUTools
       return laneid();
     }
 
-   /**
+    /**
      * randInextspot delivers the next free spot in a bitfield
      * it searches for the next unset bit to the left of spot and
      * returns its offset. if there are no unset bits to the left
@@ -547,7 +547,7 @@ namespace GPUTools
     }
 
 
-    /**
+   /**
     * alloc_internal_direct allocates the requested number of bytes via the heap with coalescing disabled
     * @param bytes number of bytes to allocate
     * @return pointer to the allocated memory
@@ -566,10 +566,10 @@ namespace GPUTools
         return allocPageBased(bytes);
     }
 
-      /**
-      * dealloc_internal_direct frees the memory regions previously acllocted via the heap with coalescing disabled
-      * @param mempointer to the memory region to free
-      */
+   /**
+    * dealloc_internal_direct frees the memory regions previously acllocted via the heap with coalescing disabled
+    * @param mempointer to the memory region to free
+    */
       __device__ void dealloc_internal_direct(void* mem)
     {
       if(mem == 0)
@@ -598,7 +598,7 @@ namespace GPUTools
         deallocPageBased(mem, page, chunksize);
     }
 
-      /**
+   /**
     * alloc_internal_coalesced combines the memory requests of all threads within a warp and allocates them together
     * idea is based on XMalloc: A Scalable Lock-free Dynamic Memory Allocator for Many-core Machines
     * doi: 10.1109/CIT.2010.206
