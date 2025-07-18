@@ -611,6 +611,9 @@ namespace GPUTools
       __shared__ uint warp_sizecounter[32];
       __shared__ char* warp_res[32];
 
+      // identify the participating threads at the beginning of this function
+      auto mask = __activemask();
+
       //take care of padding
       bytes = (bytes + dataAlignment - 1) & ~(dataAlignment-1);
 
@@ -623,11 +626,11 @@ namespace GPUTools
 
 #if __CUDA_ARCH__ >= 700
       // ensure all threads of the warp have written the initial counter
-      __syncwarp();
+      __syncwarp(mask);
 #endif
 
       bool coalescible = bytes > 0 && bytes < (pagesize / 32);
-      uint threadcount = __popc(__ballot_sync(__activemask(), coalescible));
+      uint threadcount = __popc(__ballot_sync(mask, coalescible));
 
       if (coalescible && threadcount > 1)
       {
@@ -637,7 +640,7 @@ namespace GPUTools
 
 #if __CUDA_ARCH__ >= 700
       // wait for all atomicAdds to finish so warp_sizecounter holds the final value
-      __syncwarp();
+      __syncwarp(mask);
 #endif
 
       uint req_size = bytes;
@@ -653,7 +656,7 @@ namespace GPUTools
       }
       __threadfence_block();
 #if __CUDA_ARCH__ >= 700
-      __syncwarp();
+      __syncwarp(mask);
 #endif
 
       void *myres = myalloc;
