@@ -78,6 +78,42 @@ namespace GPUTools
      */
     __host__ ~ManagedHeap();
 
+    /** Count, how many elements can be allocated at maximum
+     *
+     * Takes an input size and determines, how many elements of this size can
+     * be allocated with the CreationPolicy Scatter. This will return the
+     * maximum number of free slots of the indicated size. It is not
+     * guaranteed where these slots are (regarding fragmentation). Therefore,
+     * the practically usable number of slots might be smaller. This function
+     * is executed in parallel. Speedup can possibly be increased by a higher
+     * amount of parallel workers.
+     *
+     * @param slotSize the size of allocatable elements to count
+     */
+    __host__ unsigned getAvailableSlots(size_t const slotSize);
+
+    /**
+     * Count how many bytes can be allocated at maximum
+     *
+     * Traverses the entire heap and accumulates the amount of memory that is
+     * currently unused. This number is purely theoretical as fragmentation may
+     * prevent allocations of this size. The algorithm mirrors the strategy
+     * used for getAvailableSlots and is executed in parallel on the device.
+     */
+    __host__ size_t getAvailableBytes();
+
+    /**
+     * alloc allocates the requested number of bytes via the heap
+     * @return pointer to the memory region, 0 if it fails
+     */
+    __host__ __device__ void* alloc(uint bytes);
+
+    /**
+     * dealloc frees the memory regions previously acllocted
+     * @param mem pointer to the memory region to free
+     */
+    __host__ __device__ void dealloc(void* mem);
+
   private:
 
 #if _DEBUG || ANALYSEHEAP
@@ -547,11 +583,11 @@ namespace GPUTools
     }
 
 
-   /**
-    * alloc_internal_direct allocates the requested number of bytes via the heap with coalescing disabled
-    * @param bytes number of bytes to allocate
-    * @return pointer to the allocated memory
-    */
+    /**
+     * alloc_internal_direct allocates the requested number of bytes via the heap with coalescing disabled
+     * @param bytes number of bytes to allocate
+     * @return pointer to the allocated memory
+     */
     __device__ void* alloc_internal_direct(uint bytes)
     {
       if(bytes == 0)
@@ -566,11 +602,11 @@ namespace GPUTools
         return allocPageBased(bytes);
     }
 
-   /**
-    * dealloc_internal_direct frees the memory regions previously acllocted via the heap with coalescing disabled
-    * @param mempointer to the memory region to free
-    */
-      __device__ void dealloc_internal_direct(void* mem)
+    /**
+     * dealloc_internal_direct frees the memory regions previously acllocted via the heap with coalescing disabled
+     * @param mempointer to the memory region to free
+     */
+    __device__ void dealloc_internal_direct(void* mem)
     {
       if(mem == 0)
         return;
@@ -598,13 +634,13 @@ namespace GPUTools
         deallocPageBased(mem, page, chunksize);
     }
 
-   /**
-    * alloc_internal_coalesced combines the memory requests of all threads within a warp and allocates them together
-    * idea is based on XMalloc: A Scalable Lock-free Dynamic Memory Allocator for Many-core Machines
-    * doi: 10.1109/CIT.2010.206
-    * @param bytes number of bytes to allocate
-    * @return pointer to the allocated memory
-    */
+    /**
+     * alloc_internal_coalesced combines the memory requests of all threads within a warp and allocates them together
+     * idea is based on XMalloc: A Scalable Lock-free Dynamic Memory Allocator for Many-core Machines
+     * doi: 10.1109/CIT.2010.206
+     * @param bytes number of bytes to allocate
+     * @return pointer to the allocated memory
+     */
     __device__ void* alloc_internal_coalesced(uint bytes)
     {
       //shared structs to use
@@ -671,9 +707,9 @@ namespace GPUTools
     }
 
     /**
-      * dealloc_internal_coalesced frees the memory regions previously acllocted via alloc_internal<true>
-      * @param mempointer to the memory region to free
-      */
+     * dealloc_internal_coalesced frees the memory regions previously acllocted via alloc_internal<true>
+     * @param mempointer to the memory region to free
+     */
     __device__ void dealloc_internal_coalesced(void* mem)
     {
       if(mem == 0)
@@ -888,47 +924,11 @@ namespace GPUTools
       }
       return bytecount;
     }
-
-    /** Count, how many elements can be allocated at maximum
-     *
-     * Takes an input size and determines, how many elements of this size can
-     * be allocated with the CreationPolicy Scatter. This will return the
-     * maximum number of free slots of the indicated size. It is not
-     * guaranteed where these slots are (regarding fragmentation). Therefore,
-     * the practically usable number of slots might be smaller. This function
-     * is executed in parallel. Speedup can possibly be increased by a higher
-     * amount of parallel workers.
-     *
-     * @param slotSize the size of allocatable elements to count
-     */
-    __host__ unsigned getAvailableSlots(size_t const slotSize);
-
-    /**
-     * Count how many bytes can be allocated at maximum
-     *
-     * Traverses the entire heap and accumulates the amount of memory that is
-     * currently unused. This number is purely theoretical as fragmentation may
-     * prevent allocations of this size. The algorithm mirrors the strategy
-     * used for getAvailableSlots and is executed in parallel on the device.
-     */
-    __host__ size_t getAvailableBytes();
-
-    /**
-     * alloc allocates the requested number of bytes via the heap
-     * @return pointer to the memory region, 0 if it fails
-     */
-    __host__ __device__ void* alloc(uint bytes);
-
-    /**
-     * dealloc frees the memory regions previously acllocted
-     * @param mem pointer to the memory region to free
-     */
-    __host__ __device__ void dealloc(void* mem);
   };
 
   /**
-    * global init heap method
-    */
+   * global init heap method
+   */
   template<uint pagesize, uint accessblocks, uint regionsize, uint wastefactor,  bool use_coalescing, bool resetfreedpages>
   __global__ void initHeap(ManagedHeap<pagesize, accessblocks, regionsize, wastefactor, use_coalescing, resetfreedpages>* heap, void* heapmem, size_t memsize)
   {
@@ -951,8 +951,8 @@ namespace GPUTools
   }
 
   /**
-    * global init heap method
-    */
+   * global init heap method
+   */
   template<uint pagesize, uint accessblocks, uint regionsize, uint wastefactor,  bool use_coalescing, bool resetfreedpages>
   __global__ void heapAllocKernel(ManagedHeap<pagesize, accessblocks, regionsize, wastefactor, use_coalescing, resetfreedpages>* heap, size_t bytes, void** result)
   {
