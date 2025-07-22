@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
 
 # Use clang-20 for all languages
-set(CMAKE_C_COMPILER clang)
-set(CMAKE_CXX_COMPILER clang++)
-set(CMAKE_CUDA_COMPILER clang++)
+set(CMAKE_C_COMPILER clang-20)
+set(CMAKE_CXX_COMPILER clang++-20)
+set(CMAKE_CUDA_COMPILER clang++-20)
 
 # CUDA specific settings
 set(CMAKE_CUDA_ARCHITECTURES 70)

@@ -170,6 +170,15 @@ inline T __host__ __device__ SWatomicMin(T* address, T val){
 #endif
 }
 
+template<typename T>
+inline T __host__ __device__ SWatomicLoad(T* address){
+#ifdef __CUDA_ARCH__
+  return atomicAdd_system(address, 0);
+#else
+  std::atomic_ref<T> ref(*address); return ref.load();
+#endif
+}
+
 #pragma clang diagnostic pop
 #endif
 
