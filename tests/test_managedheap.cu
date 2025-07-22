@@ -39,6 +39,11 @@ protected:
                     std::cerr << "A GPU with Compute Capability >= 2.0 is required." << std::endl;
                     ::g_device_supported = false;
                 }
+                if( !deviceProp.concurrentManagedAccess )
+                {
+                    std::cerr << "A GPU with concurrent managed access is required." << std::endl;
+                    ::g_device_supported = false;
+                }
             }
         }
         initHeap(HEAP_SIZE);

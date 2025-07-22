@@ -68,6 +68,10 @@ int main(int argc, char** argv)
       std::cerr << "A GPU with Compute Capability >= 2.0 is required." << std::endl;
       return -2;
     }
+    if( !deviceProp.concurrentManagedAccess )
+    {
+      std::cerr << "A GPU with concurrent managed access is required." << std::endl;
+    }
 
     runexample(cuda_device);
 
