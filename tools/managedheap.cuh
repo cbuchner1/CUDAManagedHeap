@@ -950,16 +950,6 @@ namespace GPUTools
     cudaFree(_pool);
   }
 
-  /**
-   * global init heap method
-   */
-  template<uint pagesize, uint accessblocks, uint regionsize, uint wastefactor,  bool use_coalescing, bool resetfreedpages>
-  __global__ void heapAllocKernel(ManagedHeap<pagesize, accessblocks, regionsize, wastefactor, use_coalescing, resetfreedpages>* heap, size_t bytes, void** result)
-  {
-    if(threadIdx.x==0 && blockIdx.x==0 && result != nullptr)
-      *result = heap->alloc(bytes);
-  }
-
   template<uint pagesize, uint accessblocks, uint regionsize, uint wastefactor, bool use_coalescing, bool resetfreedpages>
   __host__ __device__ void* ManagedHeap<pagesize,accessblocks,regionsize,wastefactor,use_coalescing,resetfreedpages>::alloc(uint bytes)
   {
@@ -970,24 +960,7 @@ namespace GPUTools
       return alloc_internal_direct(bytes);
 #else
     return alloc_internal_direct(bytes);
-    /*
-    void* h_res = nullptr;
-    void** d_res;
-    CUDA_CHECKED_CALL(cudaMalloc(&d_res, sizeof(void*)));
-    GPUTools::heapAllocKernel<<<1,1>>>(this, bytes, d_res);
-    CUDA_CHECK_ERROR();
-    CUDA_CHECKED_CALL(cudaDeviceSynchronize());
-    CUDA_CHECKED_CALL(cudaMemcpy(&h_res, d_res, sizeof(void*), cudaMemcpyDeviceToHost));
-    cudaFree(d_res);
-    return h_res;
-    */
 #endif
-  }
-
-  template<uint pagesize, uint accessblocks, uint regionsize, uint wastefactor, bool use_coalescing, bool resetfreedpages>
-  __global__ void heapDeallocKernel(ManagedHeap<pagesize, accessblocks, regionsize, wastefactor, use_coalescing, resetfreedpages>* heap, void* ptr){
-    if(threadIdx.x==0 && blockIdx.x==0)
-      heap->dealloc(ptr);
   }
 
   template<uint pagesize, uint accessblocks, uint regionsize, uint wastefactor,  bool use_coalescing, bool resetfreedpages>
@@ -1000,11 +973,6 @@ namespace GPUTools
       dealloc_internal_direct(mem);
 #else
     dealloc_internal_direct(mem);
-    /*
-    heapDeallocKernel<<<1,1>>>(this, mem);
-    CUDA_CHECK_ERROR();
-    CUDA_CHECKED_CALL(cudaDeviceSynchronize());
-    */
 #endif
   }
 
