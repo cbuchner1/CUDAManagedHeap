@@ -174,8 +174,8 @@ inline T __host__ __device__ SWatomicMin(T* address, T val){
 #endif
 
 #ifndef __CUDA_ARCH__
-inline void __threadfence()       { std::atomic_thread_fence(std::memory_order_seq_cst); }
-inline void __threadfence_block() { std::atomic_thread_fence(std::memory_order_seq_cst); }
+inline void __threadfence_system() { std::atomic_thread_fence(std::memory_order_seq_cst); }
+inline void __threadfence_block()  { std::atomic_thread_fence(std::memory_order_seq_cst); }
 
 inline int __ffs(unsigned int x){ return x ? __builtin_ffs(x) : 0; }
 inline int __popc(unsigned int x){ return __builtin_popcount(x); }

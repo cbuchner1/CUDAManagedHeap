@@ -446,7 +446,7 @@ namespace GPUTools
             _page[page].init();
             //remove chunk information
             _ptes[page].chunksize = 0;
-            __threadfence();
+            __threadfence_system();
             //unlock it
             SWatomicSub((uint*)&_ptes[page].count, pagesize);
           }
@@ -576,7 +576,7 @@ namespace GPUTools
         uint pages = divup(bytes,pagesize);
         for(uint p = page; p < page+pages; ++p)
           _page[p].init();
-        __threadfence();
+        __threadfence_system();
         for(uint p = page; p < page+pages; ++p)
           SWatomicCAS((uint*)&_ptes[p].chunksize, bytes, 0u);
         SWatomicMax((uint*)&_firstFreePageBased, page+pages-1);
