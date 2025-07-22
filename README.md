@@ -15,7 +15,7 @@ allocators that place the objects themselves on the managed heap.
 
 The alloc() and dealloc() members can also be called by host code. System wide atomics are used
 in CUDA code to allow the CPU and GPU access the heap concurrently. The host side uses operations
-from the <atomic> header.
+from the \<atomic\> header.
 
 ## Additional Notes
 
