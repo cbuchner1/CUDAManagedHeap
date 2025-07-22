@@ -142,7 +142,7 @@ namespace GPUTools
       uint count;
       uint bitmask;
 
-      __device__ void init()
+      __host__ __device__ void init()
       {
         chunksize = 0;
         count = 0;
@@ -164,13 +164,13 @@ namespace GPUTools
        * bit fields when the page is used for a small chunk size
        * @param previous_chunksize the chunksize which was uses for the page before
        */
-      __device__ void init(uint previous_chunksize = 0)
+      __host__ __device__ void init(uint previous_chunksize = 0)
       {
         //TODO: we can speed this up for pages being freed, because we know the
         //chunksize used before (these bits must be zero again)
 
         //init the entire data which can hold bitfields
-        uint max_bits = min(32*32,pagesize/minChunkSize1);
+        uint max_bits = std::min(32u*32u,pagesize/minChunkSize1);
         uint max_entries = GPUTools::divup<uint>(max_bits/8,sizeof(uint))*sizeof(uint);
         uint* write = (uint*)(data+(pagesize-max_entries));
         while(write < (uint*)(data + pagesize))
@@ -193,7 +193,7 @@ namespace GPUTools
      * randInit should create an random offset which can be used
      * as the initial position in a bitfield
      */
-    __device__ inline uint randInit()
+    __host__ __device__ inline uint randInit()
     {
       //start with the laneid offset
       return laneid();
@@ -209,7 +209,7 @@ namespace GPUTools
      * @param spots number of bits that can be used
      * @return next free spot in the bitfield
      */
-    __device__ inline uint nextspot(uint bitfield, uint spot, uint spots)
+    __host__ __device__ inline uint nextspot(uint bitfield, uint spot, uint spots)
     {
       //wrap around the bitfields from the current spot to the left
       bitfield = ((bitfield >> (spot + 1)) | (bitfield << (spots - (spot + 1))))&((1<<spots)-1);
@@ -225,14 +225,14 @@ namespace GPUTools
      * @param spots overall number of spots the bitfield is responsible for
      * @return if there is a free spot it returns the spot'S offset, otherwise -1
      */
-    __device__ inline int usespot(uint *bitfield, uint spots)
+    __host__ __device__ inline int usespot(uint *bitfield, uint spots)
     {
       //get first spot
       uint spot = randInit() % spots;
       for(;;)
       {
         uint mask = 1 << spot;
-        uint old = atomicOr(bitfield, mask);
+        uint old = SWatomicOr(bitfield, mask);
         if( (old & mask) == 0)
           return spot;
         // note: __popc(old) == spots should be sufficient,
@@ -251,7 +251,7 @@ namespace GPUTools
      * @param page the page to use
      * @return pointer to a free chunk on the page, 0 if we were unable to obtain a free chunk
      */
-    __device__ inline void* addChunkHierarchy(uint chunksize, uint fullsegments, uint additional_chunks, uint page)
+    __host__ __device__ inline void* addChunkHierarchy(uint chunksize, uint fullsegments, uint additional_chunks, uint page)
     {
       uint segments = fullsegments + (additional_chunks > 0 ? 1 : 0);
       uint spot = randInit() % segments;
@@ -266,7 +266,7 @@ namespace GPUTools
         if(hspot != -1)
           return _page[page].data + (32*spot + hspot)*chunksize;
         else
-          atomicOr((uint*)&_ptes[page].bitmask, 1 << spot);
+          SWatomicOr((uint*)&_ptes[page].bitmask, 1u << spot);
         spot = nextspot(mask, spot, segments);
       }
       return 0;
@@ -279,7 +279,7 @@ namespace GPUTools
      * @param spots the number of chunks which fit on the page
      * @return pointer to a free chunk on the page, 0 if we were unable to obtain a free chunk
      */
-    __device__ inline void* addChunkNoHierarchy(uint chunksize, uint page, uint spots)
+    __host__ __device__ inline void* addChunkNoHierarchy(uint chunksize, uint page, uint spots)
     {
       int spot = usespot((uint*)&_ptes[page].bitmask, spots);
       if(spot == -1)
@@ -293,11 +293,11 @@ namespace GPUTools
      * @param chunksize the chunksize of the page
      * @return pointer to a free chunk on the page, 0 if we were unable to obtain a free chunk
      */
-    __device__ inline void* tryUsePage(uint page, uint chunksize)
+    __host__ __device__ inline void* tryUsePage(uint page, uint chunksize)
     {
       void* chunk_ptr = NULL;
       //increase the fill level
-      uint filllevel = atomicAdd((uint*)&(_ptes[page].count), 1);
+      uint filllevel = SWatomicAdd((uint*)&(_ptes[page].count), 1u);
       //recheck chunk size (it could be that the page got freed in the meanwhile...)
       if(!resetfreedpages || _ptes[page].chunksize == chunksize)
       {
@@ -308,13 +308,13 @@ namespace GPUTools
           uint fullsegments = 0;
           uint additional_chunks = 0;
           fullsegments = pagesize / segmentsize;
-          additional_chunks = max(0,(int)pagesize - (int)fullsegments*segmentsize - (int)sizeof(uint))/chunksize;
+          additional_chunks = std::max(0u,(int)pagesize - (int)fullsegments*segmentsize - (int)sizeof(uint))/chunksize;
           if(filllevel < fullsegments * 32 + additional_chunks)
             chunk_ptr = addChunkHierarchy(chunksize, fullsegments, additional_chunks, page);
         }
         else
         {
-          uint chunksinpage = min(pagesize / chunksize, 32);
+          uint chunksinpage = std::min(pagesize / chunksize, 32u);
           if(filllevel < chunksinpage)
             chunk_ptr = addChunkNoHierarchy(chunksize, page, chunksinpage);
         }
@@ -322,7 +322,7 @@ namespace GPUTools
 
       //this one is full/not usable
       if(chunk_ptr == NULL)
-        atomicSub((uint*)&(_ptes[page].count), 1);
+        SWatomicSub((uint*)&(_ptes[page].count), 1u);
 
       return chunk_ptr;
     }
@@ -332,12 +332,12 @@ namespace GPUTools
      * @param bytes the number of bytes to allocate
      * @return pointer to a free chunk on a page, 0 if we were unable to obtain a free chunk
      */
-    __device__ void* allocChunked(uint bytes)
+    __host__ __device__ void* allocChunked(uint bytes)
     {
       uint pagesperblock = _numpages/accessblocks;
       uint reloff = warpSize*bytes / pagesize;
       uint startpage = (bytes*hashingK + hashingDistMP*smid() + (hashingDistWP+hashingDistWPRel*reloff)*warpid() ) % pagesperblock;
-      uint maxchunksize = min(pagesize,wastefactor*bytes);
+      uint maxchunksize = std::min(pagesize,wastefactor*bytes);
       uint startblock = _firstfreeblock;
       uint ptetry = startpage + startblock*pagesperblock;
       uint checklevel = regionsize*3/4;
@@ -363,8 +363,8 @@ namespace GPUTools
                 {
                   //lets open up a new page
                   //it is already padded
-                  uint new_chunksize = max(bytes,minChunkSize1);
-                  uint beforechunksize = atomicCAS((uint*)&_ptes[ptetry].chunksize, 0, new_chunksize);
+                  uint new_chunksize = std::max(bytes,minChunkSize1);
+                  uint beforechunksize = SWatomicCAS((uint*)&_ptes[ptetry].chunksize, 0u, new_chunksize);
                   if(beforechunksize == 0)
                   {
                     void * res = tryUsePage(ptetry, new_chunksize);
@@ -380,7 +380,7 @@ namespace GPUTools
               }
               //could not alloc in region, tell that
               if(regionfilllevel + 1 <= regionsize)
-                atomicMax((uint*)(_regions + region), regionfilllevel+1);
+                SWatomicMax((uint*)(_regions + region), regionfilllevel+1);
             }
             else
               ptetry += regionsize;
@@ -406,7 +406,7 @@ namespace GPUTools
      * @param page the page the chunk is on
      * @param chunksize the chunksize used for the page
      */
-    __device__ void deallocChunked(void* mem, uint page, uint chunksize)
+    __host__ __device__ void deallocChunked(void* mem, uint page, uint chunksize)
     {
       uint inpage_offset = ((char*)mem - _page[page].data);
       if(chunksize <= HierarchyThreshold)
@@ -414,23 +414,23 @@ namespace GPUTools
         //one more level in hierarchy
         uint segmentsize = chunksize*32 + sizeof(uint);
         uint fullsegments = pagesize / segmentsize;
-        uint additional_chunks = max(0,(int)(pagesize - fullsegments*segmentsize) - (int)sizeof(uint))/chunksize;
+        uint additional_chunks = std::max(0,(int)(pagesize - fullsegments*segmentsize) - (int)sizeof(uint))/chunksize;
         uint segment = inpage_offset / (chunksize*32);
         uint withinsegment = (inpage_offset - segment*(chunksize*32))/chunksize;
         //mark it as free
         uint* onpagemasks = (uint*)(_page[page].data + chunksize*(fullsegments*32 + additional_chunks));
-        uint old = atomicAnd(onpagemasks + segment, ~(1 << withinsegment));
+        uint old = SWatomicAnd(onpagemasks + segment, ~(1u << withinsegment));
 
         // always do this, since it might fail due to a race-condition with addChunkHierarchy
-        atomicAnd((uint*)&_ptes[page].bitmask, ~(1 << segment));
+        SWatomicAnd((uint*)&_ptes[page].bitmask, ~(1u << segment));
       }
       else
       {
         uint segment = inpage_offset / chunksize;
-        atomicAnd((uint*)&_ptes[page].bitmask, ~(1 << segment));
+        SWatomicAnd((uint*)&_ptes[page].bitmask, ~(1u << segment));
       }
       //reduce filllevel as free
-      uint oldfilllevel = atomicSub((uint*)&_ptes[page].count, 1);
+      uint oldfilllevel = SWatomicSub((uint*)&_ptes[page].count, 1u);
 
 
       if(resetfreedpages)
@@ -439,7 +439,7 @@ namespace GPUTools
         {
           //this page now got free!
           // -> try lock it
-          uint old = atomicCAS((uint*)&_ptes[page].count, 0, pagesize);
+          uint old = SWatomicCAS((uint*)&_ptes[page].count, 0u, pagesize);
           if(old == 0)
           {
             //clean the bits for the hierarchy
@@ -448,7 +448,7 @@ namespace GPUTools
             _ptes[page].chunksize = 0;
             __threadfence();
             //unlock it
-            atomicSub((uint*)&_ptes[page].count, pagesize);
+            SWatomicSub((uint*)&_ptes[page].count, pagesize);
           }
         }
       }
@@ -460,7 +460,7 @@ namespace GPUTools
         _regions[region] = 0;
         uint block = region * regionsize * accessblocks / _numpages ;
         if(warpid() + laneid() == 0)
-          atomicMin((uint*)&_firstfreeblock, block);
+          SWatomicMin((uint*)&_firstfreeblock, block);
       }
     }
 
@@ -471,12 +471,12 @@ namespace GPUTools
      * @param bytes number of overall bytes to mark pages for
      * @return true on success, false if one of the pages is not free
      */
-    __device__ bool markpages(uint startpage, uint pages, uint bytes)
+    __host__ __device__ bool markpages(uint startpage, uint pages, uint bytes)
     {
       int abortPage = -1;
       for(uint trypage = startpage; trypage < startpage + pages; ++trypage)
       {
-        uint old = atomicCAS((uint*)&_ptes[trypage].chunksize, 0, bytes);
+        uint old = SWatomicCAS((uint*)&_ptes[trypage].chunksize, 0u, bytes);
         if(old != 0)
         {
           abortPage = trypage;
@@ -486,7 +486,7 @@ namespace GPUTools
       if(abortPage == -1)
         return true;
       for(uint trypage = startpage; trypage < abortPage; ++trypage)
-        atomicCAS((uint*)&_ptes[trypage].chunksize, bytes, 0);
+        SWatomicCAS((uint*)&_ptes[trypage].chunksize, bytes, 0u);
       return false;
     }
 
@@ -497,7 +497,7 @@ namespace GPUTools
      * @param bytes number of overall bytes to mark pages for
      * @return pointer to the first page to use, 0 if we were unable to use all the requested pages
      */
-    __device__ void* allocPageBasedSingleRegion(uint startpage, uint endpage, uint bytes)
+    __host__ __device__ void* allocPageBasedSingleRegion(uint startpage, uint endpage, uint bytes)
     {
       uint pagestoalloc = divup(bytes, pagesize);
       uint freecount = 0;
@@ -514,7 +514,7 @@ namespace GPUTools
             {
               //mark that we filled up everything up to here
               if(!left_free)
-                atomicCAS((uint*)&_firstFreePageBased, startpage, search_page - 1);
+                SWatomicCAS((uint*)&_firstFreePageBased, startpage, search_page - 1);
               return _page[search_page].data;
             }
           }
@@ -534,10 +534,10 @@ namespace GPUTools
      * @return pointer to the first page to use, 0 if we were unable to use all the requested pages
      * @pre only a single thread of a warp is allowed to call the function concurrently
      */
-    __device__ void* allocPageBasedSingle(uint bytes)
+    __host__ __device__ void* allocPageBasedSingle(uint bytes)
     {
       //acquire mutex
-      while(atomicExch(&_pagebasedMutex,1) != 0);
+      while(SWatomicExch(&_pagebasedMutex,1u) != 0);
       //search for free spot from the back
       uint spage = _firstFreePageBased;
       void* res = allocPageBasedSingleRegion(spage, 0, bytes);
@@ -546,7 +546,7 @@ namespace GPUTools
           res = allocPageBasedSingleRegion(_numpages, spage, bytes);
 
       //free mutex
-      atomicExch(&_pagebasedMutex,0);
+      SWatomicExch(&_pagebasedMutex,0u);
       return res;
     }
     /**
@@ -554,7 +554,7 @@ namespace GPUTools
      * @param bytes number of overall bytes to mark pages for
      * @return pointer to the first page to use, 0 if we were unable to use all the requested pages
      */
-    __device__ void* allocPageBased(uint bytes)
+    __host__ __device__ void* allocPageBased(uint bytes)
     {
       //this is rather slow, but we dont expect that to happen often anyway
 
@@ -571,15 +571,15 @@ namespace GPUTools
      * @param page the first page
      * @param bytes the number of bytes to be freed
      */
-    __device__ void deallocPageBased(void* mem, uint page, uint bytes)
+    __host__ __device__ void deallocPageBased(void* mem, uint page, uint bytes)
     {
         uint pages = divup(bytes,pagesize);
         for(uint p = page; p < page+pages; ++p)
           _page[p].init();
         __threadfence();
         for(uint p = page; p < page+pages; ++p)
-          atomicCAS((uint*)&_ptes[p].chunksize, bytes, 0);
-        atomicMax((uint*)&_firstFreePageBased, page+pages-1);
+          SWatomicCAS((uint*)&_ptes[p].chunksize, bytes, 0u);
+        SWatomicMax((uint*)&_firstFreePageBased, page+pages-1);
     }
 
 
@@ -588,7 +588,7 @@ namespace GPUTools
      * @param bytes number of bytes to allocate
      * @return pointer to the allocated memory
      */
-    __device__ void* alloc_internal_direct(uint bytes)
+    __host__ __device__ void* alloc_internal_direct(uint bytes)
     {
       if(bytes == 0)
         return 0;
@@ -606,7 +606,7 @@ namespace GPUTools
      * dealloc_internal_direct frees the memory regions previously acllocted via the heap with coalescing disabled
      * @param mempointer to the memory region to free
      */
-    __device__ void dealloc_internal_direct(void* mem)
+    __host__ __device__ void dealloc_internal_direct(void* mem)
     {
       if(mem == 0)
         return;
@@ -622,7 +622,7 @@ namespace GPUTools
       {
         uint* counter = (uint*)(_page[page].data + block*chunksize);
         //coalesced mem free
-        uint old = atomicSub(counter, 1);
+        uint old = SWatomicSub(counter, 1u);
         if(old != 1)
           return;
         mem = (void*) counter;
@@ -670,12 +670,12 @@ namespace GPUTools
 
       if (coalescible && threadcount > 1)
       {
-        myoffset = atomicAdd(&warp_sizecounter[warpid], bytes);
+        myoffset = SWatomicAdd(&warp_sizecounter[warpid], bytes);
         can_use_coalescing = true;
       }
 
 #if __CUDA_ARCH__ >= 700
-      // wait for all atomicAdds to finish so warp_sizecounter holds the final value
+      // wait for all SWatomicAdds to finish so warp_sizecounter holds the final value
       __syncwarp(mask);
 #endif
 
@@ -726,7 +726,7 @@ namespace GPUTools
       {
         uint* counter = (uint*)(_page[page].data + block*chunksize);
         //coalesced mem free
-        uint old = atomicSub(counter, 1);
+        uint old = SWatomicSub(counter, 1u);
         if(old != 1)
           return;
         mem = (void*) counter;
@@ -772,7 +772,7 @@ namespace GPUTools
       if( (void*)(regions + numregions) > (((char*)memory) + memsize) )
       {
         --numregions;
-        numpages = min(numregions*regionsize,numpages);
+        numpages = std::min(numregions*regionsize,numpages);
         if(linid == 0) printf("Heap Warning: needed to reduce number of regions to stay within memory limit\n");
       }
       //if(linid == 0) printf("Heap info: wasting %d bytes\n",(((POINTEREQUIVALENT)memory) + memsize) - (POINTEREQUIVALENT)(regions + numregions));
@@ -826,7 +826,7 @@ namespace GPUTools
       {
         uint32_t segmentsize = chunksize*32 + sizeof(uint32_t); //each segment can hold 32 2nd-level chunks
         uint32_t fullsegments = pagesize / segmentsize; //there might be space for more than 32 segments with 32 2nd-level chunks
-        uint32_t additional_chunks = max(0,(int)pagesize - (int)fullsegments*segmentsize - (int)sizeof(uint32_t))/chunksize;
+        uint32_t additional_chunks = std::max(0u,(int)pagesize - (int)fullsegments*segmentsize - (int)sizeof(uint32_t))/chunksize;
         uint32_t level2Chunks = fullsegments * 32 + additional_chunks;
 
         //if(filledChunks > 0 || __popc(_ptes[page].bitmask) != 0){
@@ -846,7 +846,7 @@ namespace GPUTools
         //}
         return level2Chunks - filledChunks;
       }else{
-        uint32_t chunksinpage = min(pagesize / chunksize, 32); //without hierarchy, there can not be more than 32 chunks
+        uint32_t chunksinpage = std::min(pagesize / chunksize, 32u); //without hierarchy, there can not be more than 32 chunks
         return chunksinpage - filledChunks;
       }
     }
@@ -872,7 +872,7 @@ namespace GPUTools
       unsigned slotcount = 0;
       if(slotSize < pagesize){ // multiple slots per page
         for(uint32_t currentpage = gid; currentpage < _numpages; currentpage += stride){
-          uint32_t maxchunksize = min(pagesize, wastefactor*(uint32_t)slotSize);
+          uint32_t maxchunksize = std::min(pagesize, wastefactor*(uint32_t)slotSize);
           uint32_t region = currentpage/regionsize;
           uint32_t regionfilllevel = _regions[region];
 
@@ -969,6 +969,8 @@ namespace GPUTools
     else
       return alloc_internal_direct(bytes);
 #else
+    return alloc_internal_direct(bytes);
+    /*
     void* h_res = nullptr;
     void** d_res;
     CUDA_CHECKED_CALL(cudaMalloc(&d_res, sizeof(void*)));
@@ -978,6 +980,7 @@ namespace GPUTools
     CUDA_CHECKED_CALL(cudaMemcpy(&h_res, d_res, sizeof(void*), cudaMemcpyDeviceToHost));
     cudaFree(d_res);
     return h_res;
+    */
 #endif
   }
 
@@ -996,9 +999,12 @@ namespace GPUTools
     else
       dealloc_internal_direct(mem);
 #else
+    dealloc_internal_direct(mem);
+    /*
     heapDeallocKernel<<<1,1>>>(this, mem);
     CUDA_CHECK_ERROR();
     CUDA_CHECKED_CALL(cudaDeviceSynchronize());
+    */
 #endif
   }
 
@@ -1007,7 +1013,7 @@ namespace GPUTools
     int gid       = threadIdx.x + blockIdx.x*blockDim.x;
     int nWorker   = gridDim.x * blockDim.x;
     unsigned temp = heap->getAvailableSlotsDeviceFunction(slotSize, gid, nWorker);
-    if(temp) atomicAdd(slots, temp);
+    if(temp) SWatomicAdd(slots, temp);
   }
 
   template<uint pagesize, uint accessblocks, uint regionsize, uint wastefactor, bool use_coalescing, bool resetfreedpages>
@@ -1015,7 +1021,7 @@ namespace GPUTools
     int gid     = threadIdx.x + blockIdx.x*blockDim.x;
     int nWorker = gridDim.x * blockDim.x;
     size_t temp = heap->getAvailableBytesDeviceFunction(gid, nWorker);
-    if(temp) atomicAdd((unsigned long long*)bytes, (unsigned long long)temp);
+    if(temp) SWatomicAdd((unsigned long long*)bytes, (unsigned long long)temp);
   }
 
   template<uint pagesize, uint accessblocks, uint regionsize, uint wastefactor, bool use_coalescing, bool resetfreedpages>
