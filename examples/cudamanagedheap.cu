@@ -50,7 +50,7 @@ typedef unsigned int uint;
 #include <iostream>
 #include <memory>
 
-void runexample(int cuda_device);
+void runExampleOnHost(int cuda_device);
 
 int main(int argc, char** argv)
 {
@@ -74,7 +74,7 @@ int main(int argc, char** argv)
       return -2;
     }
 
-    runexample(cuda_device);
+    runExampleOnHost(cuda_device);
 
     cudaDeviceReset();
   }
@@ -183,11 +183,11 @@ protected:
  * NOTE: The input is passed by reference, the output via a pointer to a pointer.
  * We also create an object in the kernel to pass back to the host for destruction.
  */
-__global__ void readVectorOnGPU(TestVector<int>& input, TestVector<int>** output_p)
+__global__ void handleVectorsOnGPU(TestVector<int>& input, TestVector<int>** output_p)
 {
-  // test vector is passed in by reference. This verifies we can access it safely.
-  printf("\nHello from readVectorOnGPU()!\n");
+  printf("\nHello from handleVectorsOnGPU()!\n");
 
+  // test vector is passed in by reference. verify we can access it safely.
   printf("input.size() = %d\n", (int)input.size());
   for (int i=0; i < input.size(); ++i)
     printf("input[%d] = %d\n", i, input[i]);
@@ -196,15 +196,15 @@ __global__ void readVectorOnGPU(TestVector<int>& input, TestVector<int>** output
   printf("destroying &input on GPU.\n");
   delete &input;
 
-  // create a new TestVector object on the GPU
+  // create a new TestVector<int> object on the GPU
   *output_p = new TestVector<int>(std::initializer_list<int>{4,5});
 }
 
-void runexample(int cuda_device)
+void runExampleOnHost(int cuda_device)
 {
   CUDA_CHECKED_CALL(cudaSetDevice(cuda_device));
 
-  //init the heap
+  // initialize the heap
   initHeap(8U*1024U*1024U);
 
   // we can't create this on the stack because this must live on the managed heap
@@ -216,7 +216,7 @@ void runexample(int cuda_device)
   assert((*input_p)[1] == 2);
   assert((*input_p)[2] == 3);
 
-  printf("\nHello from runexample()!\n");
+  printf("\nHello from runExampleOnHost()!\n");
 
   printf("input_p->size() = %d\n", (int)input_p->size());
   for (int i=0; i < input_p->size(); ++i)
@@ -228,10 +228,10 @@ void runexample(int cuda_device)
   auto output_pp = static_cast<TestVector<int> **>(theHeap_ph->alloc(sizeof(TestVector<int> *)));
   *output_pp = nullptr;
 
-  readVectorOnGPU<<<1,1>>>(*input_p, output_pp);
+  handleVectorsOnGPU<<<1,1>>>(*input_p, output_pp);
   CUDA_CHECKED_CALL(cudaDeviceSynchronize());
 
-  printf("\nHello again from runexample()!\n");
+  printf("\nHello again from runExampleOnHost()!\n");
 
   // sanity check on output_pp and *output_pp
   assert(output_pp != nullptr);
@@ -248,6 +248,7 @@ void runexample(int cuda_device)
   delete *output_pp;
   theHeap_ph->dealloc(output_pp);
 
+  // destroy the heap
   destroyHeap();
   printf("\nSuccess!\n");
 }
