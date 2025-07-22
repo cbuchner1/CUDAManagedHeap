@@ -59,15 +59,15 @@ int main(int argc, char** argv)
     int cuda_device = argc > 1 ? atoi(argv[1]) : 0;
 
     cudaDeviceProp deviceProp;
-	  CUDA_CHECKED_CALL(cudaGetDeviceProperties(&deviceProp, cuda_device));
+    CUDA_CHECKED_CALL(cudaGetDeviceProperties(&deviceProp, cuda_device));
     std::cout << "Using device: " << deviceProp.name << std::endl;
 
-	  if( deviceProp.major < 2 ) {
+    if( deviceProp.major < 2 ) {
       std::cerr << "This GPU with Compute Capability " << deviceProp.major
         << "." << deviceProp.minor <<  " does not meet minimum requirements." << std::endl;
-		  std::cerr << "A GPU with Compute Capability >= 2.0 is required." << std::endl;
+      std::cerr << "A GPU with Compute Capability >= 2.0 is required." << std::endl;
       return -2;
-	  }
+    }
 
     runexample(cuda_device);
 
