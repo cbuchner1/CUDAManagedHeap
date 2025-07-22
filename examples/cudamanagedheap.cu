@@ -179,18 +179,25 @@ protected:
 
 
 /**
- * Kernel demonstrating sharing an object between CPU and GPU (object passed by reference).
- * NOTE: passing input by value would also work (resulting in a GPU-local copy being made)
+ * Kernel demonstrating sharing objects between CPU and GPU (object passed by reference).
+ * NOTE: The input is passed by reference, the output via a pointer to a pointer.
+ * We also create an object in the kernel to pass back to the host for destruction.
  */
-__global__ void readVectorOnGPU(const TestVector<int>& input)
+__global__ void readVectorOnGPU(TestVector<int>& input, TestVector<int>** output_p)
 {
   // test vector is passed in by reference. This verifies we can access it safely.
-  printf("Hello from readVectorOnGPU()!\n");
+  printf("\nHello from readVectorOnGPU()!\n");
+
   printf("input.size() = %d\n", (int)input.size());
   for (int i=0; i < input.size(); ++i)
-  {
     printf("input[%d] = %d\n", i, input[i]);
-  }
+
+  // let's go wild and dispose of the input object on the GPU
+  printf("destroying &input on GPU.\n");
+  delete &input;
+
+  // create a new TestVector object on the GPU
+  *output_p = new TestVector<int>(std::initializer_list<int>{4,5});
 }
 
 void runexample(int cuda_device)
@@ -201,25 +208,45 @@ void runexample(int cuda_device)
   initHeap(8U*1024U*1024U);
 
   // we can't create this on the stack because this must live on the managed heap
-  auto input_p = std::make_unique<TestVector<int>>(std::initializer_list<int>{1,2,3});
-  const TestVector<int>& input = *input_p;
+  auto input_p = new TestVector<int>(std::initializer_list<int>{1,2,3});
 
   // test basic functionality on CPU
-  assert(input.size() == 3);
-  assert(input[0] == 1);
-  assert(input[1] == 2);
-  assert(input[2] == 3);
+  assert(input_p->size() == 3);
+  assert((*input_p)[0] == 1);
+  assert((*input_p)[1] == 2);
+  assert((*input_p)[2] == 3);
 
-  printf("Hello from runexample()!\n");
-  printf("input.size() = %d\n", (int)input.size());
-  for (int i=0; i < input.size(); ++i)
-  {
-    printf("input[%d] = %d\n", i, input[i]);
-  }
+  printf("\nHello from runexample()!\n");
+
+  printf("input_p->size() = %d\n", (int)input_p->size());
+  for (int i=0; i < input_p->size(); ++i)
+    printf("(*input_p)[%d] = %d\n", i, (*input_p)[i]);
   fflush(stdout);
 
-  readVectorOnGPU<<<1,1>>>(input);
+  // allocate a pointer to a pointer in managed memory, allowing the kernel
+  // to return a newly created TestVector<int> object to the host
+  auto output_pp = static_cast<TestVector<int> **>(theHeap_ph->alloc(sizeof(TestVector<int> *)));
+  *output_pp = nullptr;
+
+  readVectorOnGPU<<<1,1>>>(*input_p, output_pp);
   CUDA_CHECKED_CALL(cudaDeviceSynchronize());
 
-  printf("Success!\n");
+  printf("\nHello again from runexample()!\n");
+
+  // sanity check on output_pp and *output_pp
+  assert(output_pp != nullptr);
+  assert(output_pp->size() == 2);
+  assert((*output_pp)[0] == 4);
+  assert((*output_pp)[1] == 5);
+
+  printf("(*output_pp)->size() = %d\n", (int)(*output_pp)->size());
+  for (int i=0; i < (*output_pp)->size(); ++i)
+    printf("(**output_pp)[%d] = %d\n", i, (**output_pp)[i]);
+  fflush(stdout);
+
+  printf("destroying *output_pp on GPU.\n");
+  delete *output_pp;
+  theHeap_ph->dealloc(output_pp);
+
+  printf("\nSuccess!\n");
 }
