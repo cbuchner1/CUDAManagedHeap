@@ -244,7 +244,7 @@ void runExampleOnHost(int cuda_device)
     printf("(**output_pp)[%d] = %d\n", i, (**output_pp)[i]);
   fflush(stdout);
 
-  printf("destroying *output_pp on GPU.\n");
+  printf("destroying *output_pp on the host.\n");
   delete *output_pp;
   theHeap_ph->dealloc(output_pp);
 
