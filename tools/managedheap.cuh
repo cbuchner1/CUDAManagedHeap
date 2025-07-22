@@ -930,7 +930,7 @@ namespace GPUTools
    * global init heap method
    */
   template<uint pagesize, uint accessblocks, uint regionsize, uint wastefactor,  bool use_coalescing, bool resetfreedpages>
-  __global__ void initHeap(ManagedHeap<pagesize, accessblocks, regionsize, wastefactor, use_coalescing, resetfreedpages>* heap, void* heapmem, size_t memsize)
+  __global__ void initHeapKernel(ManagedHeap<pagesize, accessblocks, regionsize, wastefactor, use_coalescing, resetfreedpages>* heap, void* heapmem, size_t memsize)
   {
     heap->init(heapmem, memsize);
   }
@@ -940,8 +940,8 @@ namespace GPUTools
   {
     void* pool;
     CUDA_CHECKED_CALL(cudaMallocManaged(&pool, memsize));
-    initHeap<<<1,256>>>(this, pool, memsize);
-    CUDA_CHECK_ERROR();
+    initHeapKernel<<<1,256>>>(this, pool, memsize);
+    CUDA_CHECKED_CALL(cudaDeviceSynchronize());
   }
 
   template<uint pagesize, uint accessblocks, uint regionsize, uint wastefactor,  bool use_coalescing, bool resetfreedpages>
