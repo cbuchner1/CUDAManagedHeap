@@ -248,5 +248,6 @@ void runexample(int cuda_device)
   delete *output_pp;
   theHeap_ph->dealloc(output_pp);
 
+  destroyHeap();
   printf("\nSuccess!\n");
 }
