@@ -71,6 +71,7 @@ int main(int argc, char** argv)
     if( !deviceProp.concurrentManagedAccess )
     {
       std::cerr << "A GPU with concurrent managed access is required." << std::endl;
+      return -2;
     }
 
     runexample(cuda_device);
