@@ -957,10 +957,8 @@ namespace GPUTools
     if(use_coalescing)
       return alloc_internal_coalesced(bytes);
     else
-      return alloc_internal_direct(bytes);
-#else
-    return alloc_internal_direct(bytes);
 #endif
+      return alloc_internal_direct(bytes);
   }
 
   template<uint pagesize, uint accessblocks, uint regionsize, uint wastefactor,  bool use_coalescing, bool resetfreedpages>
@@ -970,10 +968,8 @@ namespace GPUTools
     if(use_coalescing)
       dealloc_internal_coalesced(mem);
     else
-      dealloc_internal_direct(mem);
-#else
-    dealloc_internal_direct(mem);
 #endif
+      dealloc_internal_direct(mem);
   }
 
   template<uint pagesize, uint accessblocks, uint regionsize, uint wastefactor,  bool use_coalescing, bool resetfreedpages>
