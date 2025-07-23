@@ -17,6 +17,20 @@ The alloc() and dealloc() members can also be called by host code. System wide a
 in CUDA code to allow the CPU and GPU access the heap concurrently. The host side uses operations
 from the \<atomic\> header.
 
+
+## Possible use cases
+
+* For passing data containers between CPU and GPU in a producer / consumer pattern.
+
+* When unable to determine in advance how much memory would be required to return a result, allocate a container on the GPU and return it with exactly the size required.
+
+* For implementing e.g. STL-like storage containers that work on CPU and GPU alike.
+
+* For applications that need to do a lot of dynamic memory allocations on GPU. ScatterAlloc has very high performance as it is mostly contention free. See the related paper under Resources.
+
+* For applications that like to share heap space between CPU and GPU
+
+
 ## Additional Notes
 
 Note that the unit tests I added are very bare-bones, as I do not have access to the original test and
@@ -24,6 +38,14 @@ benchmarking suite done by the authors at TU Graz.
 
 Also note that my main test environment is using clang++-20 as the CUDA compiler. The CMakeLists.txt may
 require some modifications to work with other compilers
+
+
+## Possible Future Improvemenets
+
+* Dynamically growing the heap as needed (before it runs out of space) would be a nice thing to implement.
+
+* Adding more rigorous testing will be required to validate for correctness and torture test the concurrency capabilities.
+
 
 ## Resources
 
